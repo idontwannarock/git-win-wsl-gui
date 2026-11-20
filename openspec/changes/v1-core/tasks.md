@@ -38,7 +38,7 @@
   - Frame time: p50 16.7 ms is the 60 Hz screen interval, so the app is limited by the screen, not by our work. Building the visible rows costs 65 us on average. No frame took 33 ms or more, so no frame was dropped. The p95 of 17.7 ms is 1 ms above the 16.6 ms in the spec: a 60 Hz screen cannot show a frame in less than 16.7 ms, so that threshold cannot be met as written. This benchmark does not show how much time is left inside each frame, because the screen limits the rate.
   - Not proven: scrolling by mouse wheel (the benchmark moves the list by code), and the effect of paint and GPU time on a slower machine.
 
-- [x] 2.6 Shorten the open path (follow-up from 2.5). Done: (a) call the real `ucrt64\bin\git.exe` and skip `cmd\git.exe`; (b) `open_repository` runs `rev-parse`, `for-each-ref`, and `log` at the same time. Not done: (c) one `wsl.exe` call for all three steps (parallel calls already gave most of the gain; revisit only if 7.2 needs it; a long-lived shell per distro is the only way to remove the `wsl.exe` start cost); (d) writing a commit-graph into the repository (needs the user to say yes first, because it changes the repository).
+- [x] 2.6 Shorten the open path (follow-up from 2.5). Done: (a) call the real `ucrt64\bin\git.exe` and skip `cmd\git.exe`; (b) `open_repository` runs `rev-parse`, `for-each-ref`, and `log` at the same time. Not done: (c) one `wsl.exe` call for all three steps (parallel calls already gave most of the gain; revisit only if 7.2 needs it; a long-lived shell per distro is the only way to remove the `wsl.exe` start cost); (d) writing a commit-graph into the repository. Decided no (user, 2026-11-20): the app does not change the repository. Git writes it in `git gc` and in `git maintenance`; the README tells the user to run `git maintenance start`.
 
   Open to first rows after 2.6 (ms; first_page example, 5 runs; before 2.6 in brackets):
 
@@ -55,7 +55,7 @@
 
 ## 3. Slice: commit detail and unified diff (blocked by 2)
 
-- [ ] 3.1 (tdd) `gitcore`: get the patch text of one file of a commit (`git show`) with the right arguments (no color, no external diff, rename detection). Real temp repository tests: modified, binary, renamed, no newline at end of file. Each patch must parse with `DiffFile::parse`.
+- [x] 3.1 (tdd) `gitcore`: get the patch text of one file of a commit (`git show`) with the right arguments (no color, no text conversion, rename detection, first parent for a merge). The caller passes both the new and the old path for a renamed file. `git show` does not run an external diff by default, so `--no-ext-diff` was left out. Real temp repository tests: modified, binary, renamed, no newline at end of file. Each patch must parse with `DiffFile::parse`.
 - [ ] 3.2 (tdd) `gitcore`: changed-file list for a commit (`git show --name-status -z`) with a parser test.
 - [ ] 3.3 `app`: select a commit, show message and changed files. Select a file, show its patch in the `gpui-component` `Diff` in unified mode (design D11).
 - [ ] 3.4 Benchmark: scroll a 50,000-line diff. Record the numbers in this file. If `Diff` misses the target, record the cause (explain-the-number) before choosing a fix.
@@ -85,4 +85,4 @@
 
 - [ ] 7.1 Run `cargo test`, `cargo clippy -- -D warnings`, and `cargo build --release`. Fix all failures.
 - [ ] 7.2 Re-run the benchmarks from 2.5 and 3.4. Confirm every target in the specs. Record any miss as a follow-up.
-- [ ] 7.3 Write `README.md`: what it is, how to build, requirements (git on Windows, git in each WSL distro).
+- [ ] 7.3 Write `README.md`: what it is, how to build, requirements (git on Windows, git in each WSL distro), and the tip to run `git maintenance start` for faster big repositories.

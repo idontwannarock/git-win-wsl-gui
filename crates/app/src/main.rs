@@ -1,6 +1,8 @@
 mod bench;
 mod graph;
 mod home;
+#[cfg(test)]
+mod patch_parse_tests;
 
 use gpui::{App, AppContext, WindowOptions};
 use gpui_component::Root;

@@ -1,4 +1,5 @@
 use crate::exec::hide_window;
+use crate::log::Oid;
 use crate::runner::RepoLocation;
 use std::io::Write;
 use std::process::Stdio;
@@ -36,6 +37,21 @@ pub fn generate_history(
     } else {
         Err(String::from_utf8_lossy(&output.stderr).into_owned())
     }
+}
+
+pub fn commit_all(location: &RepoLocation, message: &str) -> Result<Oid, String> {
+    let identity = ["-c", "user.name=Tester", "-c", "user.email=t@example.com"];
+    let mut commit = identity.to_vec();
+    commit.extend(["commit", "-q", "--allow-empty", "-m", message]);
+    for args in [&["add", "-A"][..], &commit[..]] {
+        location
+            .run_checked(args)
+            .map_err(|error| error.to_string())?;
+    }
+    let head = location
+        .run_checked(&["rev-parse", "HEAD"])
+        .map_err(|error| error.to_string())?;
+    Oid::parse(String::from_utf8_lossy(&head).trim()).map_err(|error| format!("{error:?}"))
 }
 
 fn fast_import_script(count: usize, merge_every: usize) -> String {

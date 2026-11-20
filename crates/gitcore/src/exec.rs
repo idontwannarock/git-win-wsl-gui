@@ -37,6 +37,29 @@ impl fmt::Display for RunError {
 
 impl std::error::Error for RunError {}
 
+#[derive(Debug)]
+pub enum CommandError {
+    Run(RunError),
+    Failed(String),
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Run(error) => write!(f, "{error}"),
+            Self::Failed(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+impl std::error::Error for CommandError {}
+
+impl From<RunError> for CommandError {
+    fn from(error: RunError) -> Self {
+        Self::Run(error)
+    }
+}
+
 const GIT_FLAVOR_FOLDERS: [&str; 3] = ["ucrt64", "mingw64", "clangarm64"];
 
 fn find_git(path_dirs: &[PathBuf]) -> PathBuf {
@@ -89,6 +112,17 @@ impl RepoLocation {
 
     pub fn run(&self, args: &[&str]) -> Result<GitOutput, RunError> {
         run_command(self.command(args))
+    }
+
+    pub fn run_checked(&self, args: &[&str]) -> Result<Vec<u8>, CommandError> {
+        let output = self.run(args)?;
+        if output.success() {
+            Ok(output.stdout)
+        } else {
+            Err(CommandError::Failed(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ))
+        }
     }
 }
 
@@ -211,6 +245,19 @@ mod tests {
         assert!(!output.success());
         assert_eq!(output.code, Some(128));
         assert!(String::from_utf8_lossy(&output.stderr).contains("not a git repository"));
+    }
+
+    #[test]
+    fn run_checked_returns_stdout_on_success_and_stderr_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let location = windows_location(dir.path());
+
+        let error = location.run_checked(&["rev-parse", "--git-dir"]).unwrap_err();
+        assert!(matches!(&error, CommandError::Failed(message) if message.contains("not a git repository")));
+
+        location.run_checked(&["init", "-q"]).unwrap();
+        let inside = location.run_checked(&["rev-parse", "--is-inside-work-tree"]).unwrap();
+        assert_eq!(inside, b"true\n");
     }
 
     #[test]
