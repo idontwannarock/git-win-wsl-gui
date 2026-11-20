@@ -13,7 +13,33 @@
 - [x] 2.2 `gitcore`: streaming `git log --all --topo-order` reader with batches and back-pressure. Kill on close. Test with a temp repository.
 - [x] 2.3 `app`: virtual graph list with lanes, subject, author, date, hash. Load the next page on scroll.
 - [x] 2.4 (tdd) `gitcore`: `for-each-ref` parser for ref labels. Then draw the labels in the graph list.
-- [ ] 2.5 Benchmark harness: generate a 100,000-commit repository. Measure time to first page and frame time while scrolling, on the Windows runner and on the WSL runner. Record the numbers in this file.
+- [x] 2.5 Benchmark harness: generate a 100,000-commit repository. Measure time to first page and frame time while scrolling, on the Windows runner and on the WSL runner. Record the numbers in this file.
+
+  How to run (release build, 2026-11-20; Core i7-13620H, Git for Windows 2.56.0, WSL Ubuntu git 2.34.1, display 60 Hz):
+  - `cargo run --release -p gitcore --example first_page -- generate D:\ws\bench100k 100000 10` (100,000 commits, 9,999 merges; also run on `\\wsl.localhost\Ubuntu\home\me\bench100k`)
+  - `first_page.exe measure <path>` prints the time of each open step, 5 runs.
+  - `set GITGUI_BENCH=1` then `target\release\app.exe <path>` scrolls 30,000 rows at 10 rows per frame and prints frame times.
+
+  Results (median of the runs; ms):
+
+  | | Windows runner | WSL runner |
+  |---|---|---|
+  | open to first rows, no commit-graph | 1,290 - 3,450 (noisy) | 1,710 - 1,880 |
+  | open to first rows, with commit-graph | 870 - 940 | 1,460 - 1,590 |
+  | git result arrives to rows visible (app) | 21 - 22 | 24 |
+  | frame time p50 / p95 / p99 / max (app) | 16.7 / 17.7 / 18.4 / 20.5 | 16.7 / 17.7 / 18.3 / 22.4 |
+  | frames over 20 ms (of 2,999) | 2 | 2 |
+  | rows waited for data while scrolling | 0 | 0 |
+
+  Explain the numbers (explain-the-number):
+  - Spec "first page within 200 ms of the command result": met. The app shows the rows 21 - 24 ms after the batch arrives.
+  - Open to first rows is 0.7 - 1.9 s. Three `git` calls run one after the other (`rev-parse`, `for-each-ref`, `log`). Each call pays the cost of starting a process. Measured from PowerShell on this machine (the numbers include PowerShell itself): `cmd /c exit` takes 73 - 88 ms, `git.exe` from `cmd\git.exe` takes 171 - 216 ms (it starts the real git a second time), the real `ucrt64\bin\git.exe` takes 93 - 130 ms, and `wsl.exe -d Ubuntu --exec true` takes 456 - 492 ms. In the benchmark each Windows step takes about 300 ms and each WSL step 540 - 680 ms (the last step is shorter with a commit-graph). The work inside git is small by comparison.
+  - `git log --all --topo-order` must sort all 100,000 commits before it prints the first one. First byte: 500 ms without a commit-graph, 210 ms with one (real git, measured with the process start included). On WSL the `log` step takes 600 - 650 ms without a commit-graph and 320 - 350 ms with one, so the sort costs about 280 ms there.
+  - Frame time: p50 16.7 ms is the 60 Hz screen interval, so the app is limited by the screen, not by our work. Building the visible rows costs 65 us on average. No frame took 33 ms or more, so no frame was dropped. The p95 of 17.7 ms is 1 ms above the 16.6 ms in the spec: a 60 Hz screen cannot show a frame in less than 16.7 ms, so that threshold cannot be met as written. This benchmark does not show how much time is left inside each frame, because the screen limits the rate.
+  - Not proven: scrolling by mouse wheel (the benchmark moves the list by code), and the effect of paint and GPU time on a slower machine.
+
+- [ ] 2.6 Shorten the open path (follow-up from 2.5). Candidate changes, measured one at a time: (a) call the real `ucrt64\bin\git.exe` and skip `cmd\git.exe` (about -90 ms per call); (b) run `rev-parse`, `for-each-ref`, and `log` at the same time; (c) on WSL, run the three steps in one `wsl.exe` call (about -1 s); (d) ask before writing a commit-graph into the repository (about -300 ms on Windows). Re-run the 2.5 benchmark after each change.
+- [ ] 2.7 Fix the wording of the "Fast scroll" scenario in `specs/commit-graph/spec.md` and `specs/diff-view/spec.md`: 16.6 ms at p95 cannot be met on a 60 Hz screen. Proposed: no dropped frame (every frame at or below 20 ms at p99) in the benchmark.
 
 ## 3. Slice: commit detail and unified diff (blocked by 2)
 

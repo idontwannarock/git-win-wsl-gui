@@ -1,3 +1,4 @@
+mod bench;
 mod graph;
 mod home;
 

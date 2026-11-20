@@ -136,7 +136,8 @@ fn read_batches(stdout: ChildStdout, batch_size: usize, sender: SyncSender<Batch
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{WslScratch, linear_history};
+    use crate::fixture::generate_history;
+    use crate::testutil::WslScratch;
     use std::time::Duration;
 
     fn location_of(dir: &tempfile::TempDir) -> RepoLocation {
@@ -161,7 +162,7 @@ mod tests {
     fn sends_the_history_newest_first_in_batches_of_the_requested_size() {
         let dir = tempfile::tempdir().unwrap();
         let location = location_of(&dir);
-        linear_history(&location, 5);
+        generate_history(&location, 5, 0).unwrap();
 
         let mut stream = LogStream::start(&location, 2).unwrap();
         let batches = drain(&mut stream);
@@ -205,7 +206,7 @@ mod tests {
     fn git_pauses_when_nobody_reads_and_resumes_when_reading_starts() {
         let dir = tempfile::tempdir().unwrap();
         let location = location_of(&dir);
-        linear_history(&location, 20_000);
+        generate_history(&location, 20_000, 0).unwrap();
 
         let mut stream = LogStream::start(&location, 100).unwrap();
         thread::sleep(Duration::from_millis(1500));
@@ -222,7 +223,7 @@ mod tests {
     fn dropping_the_stream_stops_the_git_process() {
         let dir = tempfile::tempdir().unwrap();
         let location = location_of(&dir);
-        linear_history(&location, 20_000);
+        generate_history(&location, 20_000, 0).unwrap();
 
         let mut stream = LogStream::start(&location, 100).unwrap();
         stream.next_batch().unwrap().unwrap();
@@ -248,7 +249,7 @@ mod tests {
             return;
         };
         let location = RepoLocation::parse(&scratch.unc()).unwrap();
-        linear_history(&location, 20_000);
+        generate_history(&location, 20_000, 0).unwrap();
 
         let mut stream = LogStream::start(&location, 100).unwrap();
         stream.next_batch().unwrap().unwrap();
@@ -270,7 +271,7 @@ mod tests {
             return;
         };
         let location = RepoLocation::parse(&scratch.unc()).unwrap();
-        linear_history(&location, 1_200);
+        generate_history(&location, 1_200, 0).unwrap();
 
         let mut stream = LogStream::start(&location, 500).unwrap();
         let sizes: Vec<usize> = drain(&mut stream).iter().map(Vec::len).collect();

@@ -1,4 +1,5 @@
 pub mod exec;
+pub mod fixture;
 pub mod lanes;
 pub mod log;
 pub mod refs;

@@ -1,3 +1,4 @@
+use crate::bench::ScrollBench;
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
 use gitcore::refs::{RefKind, RefLabel, by_commit, list_refs};
@@ -6,11 +7,12 @@ use gitcore::runner::Runner;
 use gitcore::stream::LogStream;
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement, PathPromptOptions, Render, Styled, Window,
-    div, px, rgb, uniform_list,
+    div, px, rgb, uniform_list, UniformListScrollHandle,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::label::Label;
 use std::ops::Range;
+use std::time::Instant;
 
 const BATCH_SIZE: usize = 500;
 const PREFETCH_ROWS: usize = 100;
@@ -29,16 +31,23 @@ enum Screen {
 
 pub struct Home {
     screen: Screen,
+    scroll: UniformListScrollHandle,
+    bench: Option<ScrollBench>,
 }
 
 impl Home {
     pub fn new() -> Self {
         Self {
             screen: Screen::Empty,
+            scroll: UniformListScrollHandle::new(),
+            bench: ScrollBench::from_env(),
         }
     }
 
     pub fn open(&mut self, path: String, cx: &mut Context<Self>) {
+        if let Some(bench) = &mut self.bench {
+            bench.start();
+        }
         self.screen = Screen::Loading;
         cx.notify();
         let task = cx.background_executor().spawn(async move {
@@ -82,6 +91,9 @@ impl Home {
         graph.reading = Some(cx.spawn(async move |this, cx| {
             let (stream, batch) = task.await;
             this.update(cx, |this, cx| {
+                if let Some(bench) = &mut this.bench {
+                    bench.on_batch();
+                }
                 if let Screen::Loaded(graph) = &mut this.screen {
                     graph.finish_read(stream, batch);
                 }
@@ -117,6 +129,7 @@ impl Home {
         let Screen::Loaded(graph) = &self.screen else {
             return Vec::new();
         };
+        let started = Instant::now();
         let rows = range
             .clone()
             .filter_map(|index| graph.rows.get(index))
@@ -125,6 +138,9 @@ impl Home {
                 commit_row(row, labels.unwrap_or_default()).into_any_element()
             })
             .collect();
+        if let Some(bench) = &mut self.bench {
+            bench.record_row_build(started.elapsed());
+        }
         if range.end + PREFETCH_ROWS >= graph.rows.len() {
             self.load_more(cx);
         }
@@ -151,14 +167,25 @@ impl Home {
                     cx.processor(|this, range, _, cx| this.rows_in(range, cx)),
                 )
                 .flex_1()
-                .min_h_0(),
+                .min_h_0()
+                .track_scroll(&self.scroll),
             )
             .into_any_element()
     }
 }
 
 impl Render for Home {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let (Screen::Loaded(graph), Some(bench)) = (&self.screen, &mut self.bench) {
+            let finished = graph.stream.is_none() && graph.reading.is_none();
+            match bench.on_frame(graph.rows.len(), finished, &self.scroll) {
+                Some(report) => {
+                    println!("{report}");
+                    cx.quit();
+                }
+                None => window.request_animation_frame(),
+            }
+        }
         let body = match &self.screen {
             Screen::Empty => Label::new("Open a repository to begin").into_any_element(),
             Screen::Loading => Label::new("Opening...").into_any_element(),
