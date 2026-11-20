@@ -41,7 +41,7 @@ Alternative: `--max-count` plus `--skip`. Rejected: git must walk all skipped co
 A function takes the next batch of commits in topo order and the open-lane state, and returns lane data for each row plus the new state. It is pure, so tests use small fixed histories. The UI only draws the result.
 
 ### D6. Virtualized lists, GPUI paint in the visible window only
-The graph, the diff, and the file lists use a virtual list. The row height is fixed, so row index maps to y without measuring. The diff text is split into lines once and each line is a row.
+The graph and the file lists use a virtual list. The row height is fixed, so row index maps to y without measuring. The diff view is the `gpui-component` `Diff` (see D11), which is virtualized already.
 
 ### D7. Refresh without file watching on WSL
 The status refreshes on window focus, after any action the app runs, and every 2 seconds while the window is focused. v1 does not watch the file system: change events on `\\wsl$` are not reliable.
@@ -56,6 +56,12 @@ Alternative: `notify` crate. Rejected for v1 for that reason. It can be added fo
 ### D10. Test seams (tdd)
 Test first for: (a) parsers for status, log, diff, refs, using fixture files; (b) path-to-runner mapping; (c) lane layout on fixed histories; (d) real temporary repositories for stage, unstage, commit, checkout through the Windows runner; (e) the contrast test; (f) benchmarks with a generated 100,000-commit repository, run for the Windows runner and, when a distro exists, for the WSL runner. We write no automated UI tests; we check views by hand.
 
+### D11. Show diffs with the `gpui-component` `Diff`
+`gpui_component::diff` is a read-only, virtualized patch view. `DiffFile::parse` reads the text of `git diff` or `git show`. `DiffState` holds the files. `Diff` draws line numbers, `+`/`-` markers, add/remove colors, word-level highlight, syntax color, binary and rename headers. A spike on 2026-11-20 showed all of this on a Rust patch that contains CJK text. We use unified mode only in v1. We write no diff parser and no diff list of our own.
+Alternative: our own parser and virtual list. Rejected: it repeats working code (laziness-protocol, subtract-before-you-add).
+The same component has split mode, annotations, and line decorations, which v2 can use for side-by-side diff and hunk staging.
+Check later: scroll speed on a 50,000-line patch (task 3.4), and whether the colors fit the Console theme (task 6.1).
+
 ## Risks / Trade-offs
 
 - [GPUI or gpui-component API changes] → Pin versions (D9). Keep UI code thin and logic in `gitcore` (D1).
@@ -66,4 +72,5 @@ Test first for: (a) parsers for status, log, diff, refs, using fixture files; (b
 
 ## Open Questions
 
-- Syntax highlighter: `gpui-component` has a `syntect` feature (about 200 languages, regex-based, line-oriented) and a `diff` module. Task 1.6 checks that it works on single diff lines and measures its cost. Fall back to plain text if it is too slow.
+- Syntax color comes from the `syntect` feature of `gpui-component`, through `Diff`. Its cost on a large patch is not measured yet (task 3.4).
+- Chinese text typed as Unicode characters shows correctly in the input box. Typing through a real Windows IME (composition window, candidate list) is not tested. The user needs to try it once before task 4.4.

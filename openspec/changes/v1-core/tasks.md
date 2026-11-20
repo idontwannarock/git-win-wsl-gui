@@ -5,7 +5,7 @@
 - [x] 1.3 (tdd) `gitcore`: run a command through a runner. Test with a real temp repository on the Windows runner. Test the WSL runner when a distro exists (skip with a visible message otherwise).
 - [x] 1.4 (tdd) `gitcore`: `git log` parser for the NUL-separated format. Fixture-based tests, including merge commits and empty body.
 - [x] 1.5 `app`: folder picker, open repository, show the last 100 commits as a plain list. Reject a non-repository with an error. Check by hand on a Windows repo and a WSL repo.
-- [ ] 1.6 Record the syntax-highlighter answer in `design.md` Open Questions (check `gpui-component` first). Check Traditional Chinese text input in a `gpui-component` input box.
+- [x] 1.6 Record the syntax-highlighter answer in `design.md` (check `gpui-component` first). Check Traditional Chinese text input in a `gpui-component` input box. Result: syntax color comes from `Diff` (design D11). Unicode text shows correctly. Real IME composition is untested and needs the user.
 
 ## 2. Slice: commit graph (blocked by 1)
 
@@ -17,11 +17,10 @@
 
 ## 3. Slice: commit detail and unified diff (blocked by 2)
 
-- [ ] 3.1 (tdd) `gitcore`: unified diff parser (hunks, line numbers, binary, rename, no-newline marker). Fixture-based tests.
-- [ ] 3.2 `gitcore`: changed-file list for a commit (`git show --name-status -z`) with a parser test.
-- [ ] 3.3 `app`: select a commit, show message and changed files. Select a file, show its diff in a virtual list with line numbers, markers, and colors.
-- [ ] 3.4 `app`: syntax color for visible lines (per the answer in 1.6).
-- [ ] 3.5 Benchmark: scroll a 50,000-line diff. Record the numbers in this file.
+- [ ] 3.1 (tdd) `gitcore`: get the patch text of one file of a commit (`git show`) with the right arguments (no color, no external diff, rename detection). Real temp repository tests: modified, binary, renamed, no newline at end of file. Each patch must parse with `DiffFile::parse`.
+- [ ] 3.2 (tdd) `gitcore`: changed-file list for a commit (`git show --name-status -z`) with a parser test.
+- [ ] 3.3 `app`: select a commit, show message and changed files. Select a file, show its patch in the `gpui-component` `Diff` in unified mode (design D11).
+- [ ] 3.4 Benchmark: scroll a 50,000-line diff. Record the numbers in this file. If `Diff` misses the target, record the cause (explain-the-number) before choosing a fix.
 
 ## 4. Slice: working tree, stage, commit (blocked by 3)
 
@@ -47,5 +46,5 @@
 ## 7. Final checks (blocked by 1-6)
 
 - [ ] 7.1 Run `cargo test`, `cargo clippy -- -D warnings`, and `cargo build --release`. Fix all failures.
-- [ ] 7.2 Re-run the benchmarks from 2.5 and 3.5. Confirm every target in the specs. Record any miss as a follow-up.
+- [ ] 7.2 Re-run the benchmarks from 2.5 and 3.4. Confirm every target in the specs. Record any miss as a follow-up.
 - [ ] 7.3 Write `README.md`: what it is, how to build, requirements (git on Windows, git in each WSL distro).
