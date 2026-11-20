@@ -56,7 +56,7 @@
 ## 3. Slice: commit detail and unified diff (blocked by 2)
 
 - [x] 3.1 (tdd) `gitcore`: get the patch text of one file of a commit (`git show`) with the right arguments (no color, no text conversion, rename detection, first parent for a merge). The caller passes both the new and the old path for a renamed file. `git show` does not run an external diff by default, so `--no-ext-diff` was left out. Real temp repository tests: modified, binary, renamed, no newline at end of file. Each patch must parse with `DiffFile::parse`.
-- [ ] 3.2 (tdd) `gitcore`: changed-file list for a commit (`git show --name-status -z`) with a parser test.
+- [x] 3.2 (tdd) `gitcore`: changed-file list for a commit (`git show --name-status -z`) with a parser test.
 - [ ] 3.3 `app`: select a commit, show message and changed files. Select a file, show its patch in the `gpui-component` `Diff` in unified mode (design D11).
 - [ ] 3.4 Benchmark: scroll a 50,000-line diff. Record the numbers in this file. If `Diff` misses the target, record the cause (explain-the-number) before choosing a fix.
 
