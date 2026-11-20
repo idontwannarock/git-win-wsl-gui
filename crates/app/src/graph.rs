@@ -1,11 +1,13 @@
 use gitcore::lanes::{GraphRow, LaneLayout};
-use gitcore::log::Commit;
+use gitcore::log::{Commit, Oid};
+use gitcore::refs::RefLabel;
 use gitcore::runner::RepoLocation;
 use gitcore::stream::{LogStream, StreamError};
 use gpui::{
     Bounds, IntoElement, PathBuilder, Pixels, Point, Rgba, Styled, Task, Window, canvas, fill,
     point, px, rgb,
 };
+use std::collections::HashMap;
 
 pub const ROW_HEIGHT: f32 = 24.0;
 const LANE_WIDTH: f32 = 14.0;
@@ -22,6 +24,7 @@ pub struct CommitRow {
 pub struct GraphState {
     pub location: RepoLocation,
     pub rows: Vec<CommitRow>,
+    pub refs: HashMap<Oid, Vec<RefLabel>>,
     pub error: Option<String>,
     pub reading: Option<Task<()>>,
     pub stream: Option<LogStream>,
@@ -29,9 +32,10 @@ pub struct GraphState {
 }
 
 impl GraphState {
-    pub fn new(location: RepoLocation, stream: LogStream) -> Self {
+    pub fn new(location: RepoLocation, stream: LogStream, refs: HashMap<Oid, Vec<RefLabel>>) -> Self {
         Self {
             location,
+            refs,
             rows: Vec::new(),
             error: None,
             reading: None,

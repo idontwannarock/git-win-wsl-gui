@@ -1,11 +1,12 @@
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
+use gitcore::refs::{RefKind, RefLabel, by_commit, list_refs};
 use gitcore::repo::locate_repository;
 use gitcore::runner::Runner;
 use gitcore::stream::LogStream;
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement, PathPromptOptions, Render, Styled, Window,
-    div, px, uniform_list,
+    div, px, rgb, uniform_list,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::label::Label;
@@ -17,11 +18,12 @@ const SHORT_ID_LENGTH: usize = 7;
 const AUTHOR_WIDTH: f32 = 140.0;
 const DATE_WIDTH: f32 = 150.0;
 const ID_WIDTH: f32 = 70.0;
+const LABEL_MAX_WIDTH: f32 = 180.0;
 
 enum Screen {
     Empty,
     Loading,
-    Loaded(GraphState),
+    Loaded(Box<GraphState>),
     Failed(String),
 }
 
@@ -43,13 +45,16 @@ impl Home {
             let location = locate_repository(&path).map_err(|error| error.to_string())?;
             let stream =
                 LogStream::start(&location, BATCH_SIZE).map_err(|error| error.to_string())?;
-            Ok::<_, String>((location, stream))
+            let refs = by_commit(list_refs(&location).map_err(|error| error.to_string())?);
+            Ok::<_, String>((location, stream, refs))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 this.screen = match result {
-                    Ok((location, stream)) => Screen::Loaded(GraphState::new(location, stream)),
+                    Ok((location, stream, refs)) => {
+                        Screen::Loaded(Box::new(GraphState::new(location, stream, refs)))
+                    }
                     Err(message) => Screen::Failed(message),
                 };
                 this.load_more(cx);
@@ -115,7 +120,10 @@ impl Home {
         let rows = range
             .clone()
             .filter_map(|index| graph.rows.get(index))
-            .map(|row| commit_row(row).into_any_element())
+            .map(|row| {
+                let labels = graph.refs.get(&row.commit.id).map(Vec::as_slice);
+                commit_row(row, labels.unwrap_or_default()).into_any_element()
+            })
             .collect();
         if range.end + PREFETCH_ROWS >= graph.rows.len() {
             self.load_more(cx);
@@ -180,7 +188,7 @@ fn describe(graph: &GraphState) -> String {
     }
 }
 
-fn commit_row(row: &CommitRow) -> impl IntoElement {
+fn commit_row(row: &CommitRow, labels: &[RefLabel]) -> impl IntoElement {
     let commit = &row.commit;
     let short_id: String = commit.id.as_str().chars().take(SHORT_ID_LENGTH).collect();
     div()
@@ -190,6 +198,7 @@ fn commit_row(row: &CommitRow) -> impl IntoElement {
         .items_center()
         .gap_3()
         .child(lane_cell(row))
+        .children(labels.iter().map(label_chip))
         .child(
             div()
                 .flex_1()
@@ -202,6 +211,27 @@ fn commit_row(row: &CommitRow) -> impl IntoElement {
         .child(fixed_column(AUTHOR_WIDTH, commit.author.clone()))
         .child(fixed_column(DATE_WIDTH, format_time(commit.time)))
         .child(fixed_column(ID_WIDTH, short_id))
+}
+
+fn label_chip(label: &RefLabel) -> impl IntoElement {
+    let (background, text) = match (label.kind, label.is_head) {
+        (RefKind::Branch, true) => (0x1f6feb, 0xffffff),
+        (RefKind::Branch, false) => (0x1d3b5c, 0xdbe9ff),
+        (RefKind::RemoteBranch, _) => (0x3a3a3a, 0xe0e0e0),
+        (RefKind::Tag, _) => (0x5c4a12, 0xfff2c2),
+    };
+    div()
+        .flex_none()
+        .max_w(px(LABEL_MAX_WIDTH))
+        .px_1()
+        .rounded_sm()
+        .text_xs()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .bg(rgb(background))
+        .text_color(rgb(text))
+        .child(label.name.clone())
 }
 
 fn fixed_column(width: f32, text: String) -> impl IntoElement {
