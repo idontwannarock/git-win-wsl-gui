@@ -1,14 +1,20 @@
 use crate::bench::ScrollBench;
+use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
+use gitcore::changes::{ChangesError, FileChange, commit_changes};
+use gitcore::diff::commit_file_patch;
 use gitcore::refs::{RefKind, RefLabel};
 use gitcore::repo::open_repository;
 use gitcore::runner::Runner;
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, PathPromptOptions, Render, Styled, Window,
-    div, px, rgb, uniform_list, UniformListScrollHandle,
+    AnyElement, AppContext, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement, PathPromptOptions,
+    Render, StatefulInteractiveElement, Styled, Window,
+    UniformListScrollHandle, div, prelude::FluentBuilder, px, rgb, uniform_list,
 };
+use gpui_component::ActiveTheme;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::diff::{DiffFile, DiffState};
 use gpui_component::label::Label;
 use std::ops::Range;
 use std::time::Instant;
@@ -123,12 +129,18 @@ impl Home {
             return Vec::new();
         };
         let started = Instant::now();
+        let selected_row = graph.detail.as_ref().map(|detail| detail.row);
+        let selected_background = cx.theme().list_active;
         let rows = range
             .clone()
-            .filter_map(|index| graph.rows.get(index))
-            .map(|row| {
+            .filter_map(|index| graph.rows.get(index).map(|row| (index, row)))
+            .map(|(index, row)| {
                 let labels = graph.refs.get(&row.commit.id).map(Vec::as_slice);
-                commit_row(row, labels.unwrap_or_default()).into_any_element()
+                let background = (selected_row == Some(index)).then_some(selected_background);
+                commit_row(row, labels.unwrap_or_default(), background)
+                    .id(("commit", index))
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_commit(index, cx)))
+                    .into_any_element()
             })
             .collect();
         if let Some(bench) = &mut self.bench {
@@ -138,6 +150,104 @@ impl Home {
             self.load_more(cx);
         }
         rows
+    }
+
+    pub fn select_commit(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Screen::Loaded(graph) = &mut self.screen else {
+            return;
+        };
+        let Some(row) = graph.rows.get(index) else {
+            return;
+        };
+        let commit = row.commit.clone();
+        let location = graph.location.clone();
+        let id = commit.id.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { commit_changes(&location, &id) });
+        let mut detail = Detail::new(index, commit);
+        detail.files_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| this.finish_changes(result, cx)).ok();
+        }));
+        graph.detail = Some(detail);
+        cx.notify();
+    }
+
+    fn finish_changes(&mut self, result: Result<Vec<FileChange>, ChangesError>, cx: &mut Context<Self>) {
+        let Screen::Loaded(graph) = &mut self.screen else {
+            return;
+        };
+        let Some(detail) = &mut graph.detail else {
+            return;
+        };
+        detail.files_task = None;
+        let has_files = matches!(&result, Ok(files) if !files.is_empty());
+        detail.files = match result {
+            Ok(files) => Load::Ready(files),
+            Err(error) => Load::Failed(error.to_string()),
+        };
+        if has_files {
+            self.select_file(0, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn select_file(&mut self, file_index: usize, cx: &mut Context<Self>) {
+        let Screen::Loaded(graph) = &mut self.screen else {
+            return;
+        };
+        let location = graph.location.clone();
+        let Some(detail) = &mut graph.detail else {
+            return;
+        };
+        let Load::Ready(files) = &detail.files else {
+            return;
+        };
+        let Some(change) = files.get(file_index) else {
+            return;
+        };
+        let paths: Vec<String> = change.patch_paths().into_iter().map(str::to_owned).collect();
+        let id = detail.commit.id.clone();
+        detail.selected_file = Some(file_index);
+        detail.patch = Some(Load::Loading);
+        let task = cx.background_executor().spawn(async move {
+            let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+            let patch = commit_file_patch(&location, &id, &paths).map_err(|error| error.to_string())?;
+            DiffFile::parse(&patch).map_err(|error| error.to_string())
+        });
+        detail.patch_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| this.finish_patch(result, cx)).ok();
+        }));
+        cx.notify();
+    }
+
+    fn finish_patch(&mut self, result: Result<Vec<DiffFile>, String>, cx: &mut Context<Self>) {
+        let patch = match result {
+            Ok(files) => Load::Ready(cx.new(|cx| DiffState::new(files, cx))),
+            Err(message) => Load::Failed(message),
+        };
+        let Screen::Loaded(graph) = &mut self.screen else {
+            return;
+        };
+        let Some(detail) = &mut graph.detail else {
+            return;
+        };
+        detail.patch_task = None;
+        detail.patch = Some(patch);
+        cx.notify();
+    }
+
+    pub fn file_rows(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        match &self.screen {
+            Screen::Loaded(graph) => graph
+                .detail
+                .as_ref()
+                .map(|detail| file_rows(detail, range, cx))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
     }
 
     fn graph_view(&self, graph: &GraphState, cx: &mut Context<Self>) -> AnyElement {
@@ -163,6 +273,7 @@ impl Home {
                 .min_h_0()
                 .track_scroll(&self.scroll),
             )
+            .children(graph.detail.as_ref().map(|detail| detail_view(detail, cx)))
             .into_any_element()
     }
 }
@@ -208,7 +319,7 @@ fn describe(graph: &GraphState) -> String {
     }
 }
 
-fn commit_row(row: &CommitRow, labels: &[RefLabel]) -> impl IntoElement {
+fn commit_row(row: &CommitRow, labels: &[RefLabel], background: Option<Hsla>) -> Div {
     let commit = &row.commit;
     let short_id: String = commit.id.as_str().chars().take(SHORT_ID_LENGTH).collect();
     div()
@@ -217,6 +328,7 @@ fn commit_row(row: &CommitRow, labels: &[RefLabel]) -> impl IntoElement {
         .flex()
         .items_center()
         .gap_3()
+        .when_some(background, |row, color| row.bg(color))
         .child(lane_cell(row))
         .children(labels.iter().map(label_chip))
         .child(
@@ -264,7 +376,7 @@ fn fixed_column(width: f32, text: String) -> impl IntoElement {
         .child(text)
 }
 
-fn format_time(unix_seconds: i64) -> String {
+pub fn format_time(unix_seconds: i64) -> String {
     DateTime::from_timestamp(unix_seconds, 0)
         .map(|utc| utc.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_default()

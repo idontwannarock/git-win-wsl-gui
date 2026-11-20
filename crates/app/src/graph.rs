@@ -1,3 +1,4 @@
+use crate::detail::Detail;
 use gitcore::lanes::{GraphRow, LaneLayout};
 use gitcore::log::{Commit, Oid};
 use gitcore::refs::RefLabel;
@@ -26,6 +27,7 @@ pub struct GraphState {
     pub location: RepoLocation,
     pub rows: Vec<CommitRow>,
     pub refs: HashMap<Oid, Vec<RefLabel>>,
+    pub detail: Option<Detail>,
     pub error: Option<String>,
     pub reading: Option<Task<()>>,
     pub stream: Option<LogStream>,
@@ -37,6 +39,7 @@ impl GraphState {
         Self {
             location: opened.location,
             refs: opened.refs,
+            detail: None,
             rows: Vec::new(),
             error: None,
             reading: None,

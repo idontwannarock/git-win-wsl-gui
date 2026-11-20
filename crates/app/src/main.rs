@@ -1,4 +1,5 @@
 mod bench;
+mod detail;
 mod graph;
 mod home;
 #[cfg(test)]
