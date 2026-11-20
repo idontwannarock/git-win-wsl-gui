@@ -57,8 +57,12 @@ impl RepoLocation {
     }
 }
 
-pub fn run_command(mut command: Command) -> Result<GitOutput, RunError> {
+pub(crate) fn hide_window(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW);
+}
+
+pub fn run_command(mut command: Command) -> Result<GitOutput, RunError> {
+    hide_window(&mut command);
     let program = command.get_program().to_string_lossy().into_owned();
     let output = command
         .output()
