@@ -1,6 +1,7 @@
 use gitcore::lanes::{GraphRow, LaneLayout};
 use gitcore::log::{Commit, Oid};
 use gitcore::refs::RefLabel;
+use gitcore::repo::OpenedRepo;
 use gitcore::runner::RepoLocation;
 use gitcore::stream::{LogStream, StreamError};
 use gpui::{
@@ -32,14 +33,14 @@ pub struct GraphState {
 }
 
 impl GraphState {
-    pub fn new(location: RepoLocation, stream: LogStream, refs: HashMap<Oid, Vec<RefLabel>>) -> Self {
+    pub fn new(opened: OpenedRepo) -> Self {
         Self {
-            location,
-            refs,
+            location: opened.location,
+            refs: opened.refs,
             rows: Vec::new(),
             error: None,
             reading: None,
-            stream: Some(stream),
+            stream: Some(opened.stream),
             layout: LaneLayout::new(),
         }
     }

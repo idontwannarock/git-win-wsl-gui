@@ -23,7 +23,7 @@ The system SHALL render only the visible rows. Scrolling the graph SHALL keep 60
 
 #### Scenario: Fast scroll
 - **WHEN** the user scrolls the graph quickly through 10,000 loaded rows
-- **THEN** the frame time stays at or below 16.6 ms at the 95th percentile in the benchmark
+- **THEN** at least 99 percent of the frames in the benchmark take 20 ms or less, and no frame takes 33 ms or more (no dropped frame on a 60 Hz screen)
 
 ### Requirement: User can select a commit
 The system SHALL let the user select a commit. The system SHALL show the commit message, the author, and the list of changed files for the selected commit.

@@ -1,10 +1,9 @@
 use crate::bench::ScrollBench;
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
-use gitcore::refs::{RefKind, RefLabel, by_commit, list_refs};
-use gitcore::repo::locate_repository;
+use gitcore::refs::{RefKind, RefLabel};
+use gitcore::repo::open_repository;
 use gitcore::runner::Runner;
-use gitcore::stream::LogStream;
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement, PathPromptOptions, Render, Styled, Window,
     div, px, rgb, uniform_list, UniformListScrollHandle,
@@ -50,21 +49,15 @@ impl Home {
         }
         self.screen = Screen::Loading;
         cx.notify();
-        let task = cx.background_executor().spawn(async move {
-            let location = locate_repository(&path).map_err(|error| error.to_string())?;
-            let stream =
-                LogStream::start(&location, BATCH_SIZE).map_err(|error| error.to_string())?;
-            let refs = by_commit(list_refs(&location).map_err(|error| error.to_string())?);
-            Ok::<_, String>((location, stream, refs))
-        });
+        let task = cx
+            .background_executor()
+            .spawn(async move { open_repository(&path, BATCH_SIZE) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 this.screen = match result {
-                    Ok((location, stream, refs)) => {
-                        Screen::Loaded(Box::new(GraphState::new(location, stream, refs)))
-                    }
-                    Err(message) => Screen::Failed(message),
+                    Ok(opened) => Screen::Loaded(Box::new(GraphState::new(opened))),
+                    Err(error) => Screen::Failed(error.to_string()),
                 };
                 this.load_more(cx);
                 cx.notify();

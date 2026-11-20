@@ -38,8 +38,20 @@
   - Frame time: p50 16.7 ms is the 60 Hz screen interval, so the app is limited by the screen, not by our work. Building the visible rows costs 65 us on average. No frame took 33 ms or more, so no frame was dropped. The p95 of 17.7 ms is 1 ms above the 16.6 ms in the spec: a 60 Hz screen cannot show a frame in less than 16.7 ms, so that threshold cannot be met as written. This benchmark does not show how much time is left inside each frame, because the screen limits the rate.
   - Not proven: scrolling by mouse wheel (the benchmark moves the list by code), and the effect of paint and GPU time on a slower machine.
 
-- [ ] 2.6 Shorten the open path (follow-up from 2.5). Candidate changes, measured one at a time: (a) call the real `ucrt64\bin\git.exe` and skip `cmd\git.exe` (about -90 ms per call); (b) run `rev-parse`, `for-each-ref`, and `log` at the same time; (c) on WSL, run the three steps in one `wsl.exe` call (about -1 s); (d) ask before writing a commit-graph into the repository (about -300 ms on Windows). Re-run the 2.5 benchmark after each change.
-- [ ] 2.7 Fix the wording of the "Fast scroll" scenario in `specs/commit-graph/spec.md` and `specs/diff-view/spec.md`: 16.6 ms at p95 cannot be met on a 60 Hz screen. Proposed: no dropped frame (every frame at or below 20 ms at p99) in the benchmark.
+- [x] 2.6 Shorten the open path (follow-up from 2.5). Done: (a) call the real `ucrt64\bin\git.exe` and skip `cmd\git.exe`; (b) `open_repository` runs `rev-parse`, `for-each-ref`, and `log` at the same time. Not done: (c) one `wsl.exe` call for all three steps (parallel calls already gave most of the gain; revisit only if 7.2 needs it; a long-lived shell per distro is the only way to remove the `wsl.exe` start cost); (d) writing a commit-graph into the repository (needs the user to say yes first, because it changes the repository).
+
+  Open to first rows after 2.6 (ms; first_page example, 5 runs; before 2.6 in brackets):
+
+  | | Windows runner | WSL runner |
+  |---|---|---|
+  | with commit-graph | 310 - 420 (870 - 940) | 730 - 950 (1,460 - 1,590) |
+  | no commit-graph | 650 - 780 (1,290 - 3,450) | 900 - 1,210 (1,710 - 1,880) |
+
+  - (a) alone: each Windows step fell from about 300 ms to 215 - 230 ms. Hooks still run with the real git, with only `C:\Windows\System32;C:\Program Files\Git\cmd` on `PATH` (checked with a failing `pre-commit` hook).
+  - (b): the three steps now cost about as much as the slowest one plus some contention. The remaining Windows time is one process start (about 130 ms) plus the `--topo-order` sort (about 110 ms with a commit-graph, about 400 ms without).
+  - WSL still pays one `wsl.exe` start (about 500 ms on this machine) before anything runs.
+  - Not understood yet: frame time depends on the machine state. Three runs on the earlier clean state and one later run gave p50 16.7 ms and p99 18.4 - 18.8 ms. Other runs gave a steady 33.3 ms. The binary from before 2.6 gave 33.3 ms in the same period, so 2.6 did not cause it. CPU use by other programs was 7 - 49 % before those runs, both screens are 60 Hz, and the power cable was connected. Row building cost 65 us in the clean state and 117 - 129 us in the slow state. The benchmark cannot yet split frame time into CPU work and GPU or screen wait. Next step before 7.2: measure the time of one draw call.
+- [x] 2.7 Fix the wording of the "Fast scroll" scenario in `specs/commit-graph/spec.md` and `specs/diff-view/spec.md`. A 60 Hz screen cannot show a frame in less than 16.7 ms, so "16.6 ms at p95" could not be met. New wording: at least 99 percent of the frames take 20 ms or less, and no frame takes 33 ms or more.
 
 ## 3. Slice: commit detail and unified diff (blocked by 2)
 

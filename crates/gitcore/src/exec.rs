@@ -1,8 +1,11 @@
 use crate::runner::{RepoLocation, Runner};
+use std::ffi::OsStr;
 use std::fmt;
 use std::io;
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -34,11 +37,43 @@ impl fmt::Display for RunError {
 
 impl std::error::Error for RunError {}
 
+const GIT_FLAVOR_FOLDERS: [&str; 3] = ["ucrt64", "mingw64", "clangarm64"];
+
+fn find_git(path_dirs: &[PathBuf]) -> PathBuf {
+    for dir in path_dirs {
+        let candidate = dir.join("git.exe");
+        if !candidate.is_file() {
+            continue;
+        }
+        let real = (dir.file_name() == Some(OsStr::new("cmd")))
+            .then(|| dir.parent())
+            .flatten()
+            .and_then(|root| {
+                GIT_FLAVOR_FOLDERS
+                    .iter()
+                    .map(|flavor| root.join(flavor).join("bin").join("git.exe"))
+                    .find(|real| real.is_file())
+            });
+        return real.unwrap_or(candidate);
+    }
+    PathBuf::from("git.exe")
+}
+
+fn windows_git() -> &'static Path {
+    static GIT: OnceLock<PathBuf> = OnceLock::new();
+    GIT.get_or_init(|| {
+        let dirs: Vec<PathBuf> = std::env::var_os("PATH")
+            .map(|path| std::env::split_paths(&path).collect())
+            .unwrap_or_default();
+        find_git(&dirs)
+    })
+}
+
 impl RepoLocation {
     pub fn command(&self, args: &[&str]) -> Command {
         let mut command = match &self.runner {
             Runner::Windows => {
-                let mut command = Command::new("git.exe");
+                let mut command = Command::new(windows_git());
                 command.arg("-C").arg(&self.path);
                 command
             }
@@ -94,8 +129,52 @@ mod tests {
     fn windows_location_builds_a_git_exe_command() {
         let location = RepoLocation::parse(r"C:\dev\repo").unwrap();
         let command = location.command(&["status", "--short"]);
-        assert_eq!(command.get_program(), OsStr::new("git.exe"));
+        assert_eq!(
+            std::path::Path::new(command.get_program()).file_name(),
+            Some(OsStr::new("git.exe"))
+        );
         assert_eq!(args_of(&command), ["-C", r"C:\dev\repo", "status", "--short"]);
+    }
+
+    fn touch(path: &std::path::Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"").unwrap();
+    }
+
+    #[test]
+    fn skips_the_cmd_redirector_for_the_real_git() {
+        let root = tempfile::tempdir().unwrap();
+        let cmd = root.path().join("Git").join("cmd");
+        let real = root.path().join("Git").join("ucrt64").join("bin").join("git.exe");
+        touch(&cmd.join("git.exe"));
+        touch(&real);
+
+        assert_eq!(find_git(&[cmd]), real);
+    }
+
+    #[test]
+    fn keeps_a_git_that_is_not_in_a_cmd_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let tools = root.path().join("tools");
+        touch(&tools.join("git.exe"));
+
+        assert_eq!(find_git(std::slice::from_ref(&tools)), tools.join("git.exe"));
+    }
+
+    #[test]
+    fn keeps_the_cmd_git_when_no_real_git_sits_next_to_it() {
+        let root = tempfile::tempdir().unwrap();
+        let cmd = root.path().join("Git").join("cmd");
+        touch(&cmd.join("git.exe"));
+
+        assert_eq!(find_git(std::slice::from_ref(&cmd)), cmd.join("git.exe"));
+    }
+
+    #[test]
+    fn uses_the_bare_name_when_git_is_not_on_the_path() {
+        let empty = tempfile::tempdir().unwrap();
+
+        assert_eq!(find_git(&[empty.path().to_path_buf()]), PathBuf::from("git.exe"));
     }
 
     #[test]

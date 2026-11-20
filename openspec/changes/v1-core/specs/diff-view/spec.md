@@ -36,4 +36,4 @@ The system SHALL render only the visible diff lines. A diff of 50,000 lines SHAL
 
 #### Scenario: Large diff
 - **WHEN** the user scrolls a 50,000-line diff
-- **THEN** the frame time stays at or below 16.6 ms at the 95th percentile in the benchmark
+- **THEN** at least 99 percent of the frames in the benchmark take 20 ms or less, and no frame takes 33 ms or more (no dropped frame on a 60 Hz screen)
