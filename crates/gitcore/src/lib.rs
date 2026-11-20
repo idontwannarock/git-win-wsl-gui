@@ -7,6 +7,7 @@ pub mod log;
 pub mod refs;
 pub mod repo;
 pub mod runner;
+pub mod status;
 pub mod stream;
 #[cfg(test)]
 mod testutil;

@@ -58,11 +58,11 @@
 - [x] 3.1 (tdd) `gitcore`: get the patch text of one file of a commit (`git show`) with the right arguments (no color, no text conversion, rename detection, first parent for a merge). The caller passes both the new and the old path for a renamed file. `git show` does not run an external diff by default, so `--no-ext-diff` was left out. Real temp repository tests: modified, binary, renamed, no newline at end of file. Each patch must parse with `DiffFile::parse`.
 - [x] 3.2 (tdd) `gitcore`: changed-file list for a commit (`git show --name-status -z`) with a parser test.
 - [x] 3.3 `app`: select a commit, show message and changed files. Select a file, show its patch in the `gpui-component` `Diff` in unified mode (design D11).
-- [ ] 3.4 Benchmark: scroll a 50,000-line diff. Record the numbers in this file. If `Diff` misses the target, record the cause (explain-the-number) before choosing a fix.
+- [ ] 3.4 (deferred by the user on 2026-11-20: other programs on the machine disturb the frame times; do it with 7.2) Benchmark: scroll a 50,000-line diff. Record the numbers in this file. If `Diff` misses the target, record the cause (explain-the-number) before choosing a fix.
 
 ## 4. Slice: working tree, stage, commit (blocked by 3)
 
-- [ ] 4.1 (tdd) `gitcore`: `status --porcelain=v2 -z --branch` parser. Fixtures for modified, added, deleted, renamed, untracked, conflicted.
+- [x] 4.1 (tdd) `gitcore`: `status --porcelain=v2 -z --branch` parser. Fixtures for modified, added, deleted, renamed, untracked, conflicted.
 - [ ] 4.2 (tdd) `gitcore`: stage, unstage, stage all, commit. Real temp repository tests, including a failing pre-commit hook.
 - [ ] 4.3 `app`: staged and unstaged lists, diff of the selected file (index vs HEAD, work tree vs index), Space to toggle, "Stage all".
 - [ ] 4.4 `app`: commit message box and commit action. Disable on empty message or nothing staged. Show hook output on failure.
