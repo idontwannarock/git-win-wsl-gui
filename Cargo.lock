@@ -151,6 +151,7 @@ dependencies = [
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
+ "tempfile",
 ]
 
 [[package]]
