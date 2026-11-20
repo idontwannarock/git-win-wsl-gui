@@ -1,3 +1,4 @@
+mod graph;
 mod home;
 
 use gpui::{App, AppContext, WindowOptions};

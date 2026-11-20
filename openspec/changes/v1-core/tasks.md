@@ -11,8 +11,8 @@
 
 - [x] 2.1 (tdd) `gitcore`: incremental lane layout on fixed histories (linear, fork, merge, octopus).
 - [x] 2.2 `gitcore`: streaming `git log --all --topo-order` reader with batches and back-pressure. Kill on close. Test with a temp repository.
-- [ ] 2.3 `app`: virtual graph list with lanes, subject, author, date, hash, ref labels. Load the next page on scroll.
-- [ ] 2.4 (tdd) `gitcore`: `for-each-ref` parser for ref labels.
+- [x] 2.3 `app`: virtual graph list with lanes, subject, author, date, hash. Load the next page on scroll.
+- [ ] 2.4 (tdd) `gitcore`: `for-each-ref` parser for ref labels. Then draw the labels in the graph list.
 - [ ] 2.5 Benchmark harness: generate a 100,000-commit repository. Measure time to first page and frame time while scrolling, on the Windows runner and on the WSL runner. Record the numbers in this file.
 
 ## 3. Slice: commit detail and unified diff (blocked by 2)
