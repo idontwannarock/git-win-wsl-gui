@@ -2,6 +2,7 @@ pub mod changes;
 pub mod diff;
 pub mod exec;
 pub mod fixture;
+pub mod index;
 pub mod lanes;
 pub mod log;
 pub mod refs;

@@ -226,7 +226,7 @@ pub fn read_status(location: &RepoLocation) -> Result<Status, StatusError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixture::commit_all;
+    use crate::testutil::TempRepo as Repo;
 
     const OID: &str = "1111111111111111111111111111111111111111";
     const HASH: &str = "2222222222222222222222222222222222222222";
@@ -412,38 +412,6 @@ mod tests {
             parse_status(&records(&[&line])),
             Err(ParseStatusError::BadRecord(_))
         ));
-    }
-
-    struct Repo {
-        dir: tempfile::TempDir,
-        location: RepoLocation,
-    }
-
-    impl Repo {
-        fn new() -> Self {
-            let dir = tempfile::tempdir().unwrap();
-            let location = RepoLocation::parse(dir.path().to_str().unwrap()).unwrap();
-            location.run_checked(&["init", "-q", "-b", "main"]).unwrap();
-            Self { dir, location }
-        }
-
-        fn write(&self, name: &str, content: &str) {
-            let path = self.dir.path().join(name);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, content).unwrap();
-        }
-
-        fn git(&self, args: &[&str]) {
-            self.location.run_checked(args).unwrap();
-        }
-
-        fn commit(&self, message: &str) {
-            commit_all(&self.location, message).unwrap();
-        }
-
-        fn status(&self) -> Status {
-            read_status(&self.location).unwrap()
-        }
     }
 
     fn sorted(mut status: Status) -> Vec<StatusEntry> {
