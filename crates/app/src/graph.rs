@@ -25,6 +25,7 @@ pub struct CommitRow {
 }
 
 pub struct GraphState {
+    pub source: String,
     pub location: RepoLocation,
     pub rows: Vec<CommitRow>,
     pub refs: HashMap<Oid, Vec<RefLabel>>,
@@ -38,8 +39,20 @@ pub struct GraphState {
 }
 
 impl GraphState {
-    pub fn new(opened: OpenedRepo, focus: FocusHandle) -> Self {
+    pub fn replace_history(&mut self, opened: OpenedRepo) {
+        self.location = opened.location;
+        self.refs = opened.refs;
+        self.stream = Some(opened.stream);
+        self.rows.clear();
+        self.layout = LaneLayout::new();
+        self.detail = None;
+        self.reading = None;
+        self.error = None;
+    }
+
+    pub fn new(opened: OpenedRepo, source: String, focus: FocusHandle) -> Self {
         Self {
+            source,
             location: opened.location,
             refs: opened.refs,
             detail: None,

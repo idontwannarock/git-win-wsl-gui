@@ -2,23 +2,26 @@ use crate::detail::{Load, file_row, name_and_folder};
 use crate::home::Home;
 use gitcore::diff::worktree_file_patch;
 use gitcore::exec::CommandError;
-use gitcore::index::{stage, stage_all, unstage};
+use gitcore::index::{commit, stage, stage_all, unstage};
 use gitcore::runner::RepoLocation;
 use gitcore::status::{
     ChangeKind, FileState, Groups, Status, StatusError, WorkingFile, read_status,
 };
 use gpui::{
     AnyElement, AppContext, Context, Entity, FocusHandle, Hsla, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, StatefulInteractiveElement, Styled, Task, Window, div, px,
-    uniform_list,
+    KeyDownEvent, ParentElement, StatefulInteractiveElement, Styled, Subscription, Task, Window,
+    div, px, uniform_list,
 };
 use gpui_component::ActiveTheme;
-use gpui_component::button::Button;
+use gpui_component::Disableable;
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::diff::{Diff, DiffFile, DiffState};
+use gpui_component::input::{InputEvent, Textarea, TextareaState};
 use gpui_component::label::Label;
 use std::ops::Range;
 
 const LIST_WIDTH: f32 = 320.0;
+const COMMIT_ERROR_MAX_HEIGHT: f32 = 120.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Side {
@@ -38,6 +41,9 @@ pub struct Working {
     pub patch: Option<Load<Entity<DiffState>>>,
     pub error: Option<String>,
     pub focus: FocusHandle,
+    pub message: Option<Entity<TextareaState>>,
+    pub commit_error: Option<String>,
+    message_subscription: Option<Subscription>,
     status_task: Option<Task<()>>,
     patch_task: Option<Task<()>>,
     action_task: Option<Task<()>>,
@@ -51,6 +57,9 @@ impl Working {
             patch: None,
             error: None,
             focus,
+            message: None,
+            commit_error: None,
+            message_subscription: None,
             status_task: None,
             patch_task: None,
             action_task: None,
@@ -61,6 +70,11 @@ impl Working {
         self.groups
             .as_ref()
             .map_or(0, |groups| groups.staged.len() + groups.unstaged.len())
+    }
+
+    fn can_commit(&self, message: &str) -> bool {
+        let has_staged = self.groups.as_ref().is_some_and(|groups| !groups.staged.is_empty());
+        has_staged && !message.trim().is_empty() && self.action_task.is_none()
     }
 
     fn list(&self, side: Side) -> &[WorkingFile] {
@@ -115,6 +129,66 @@ impl Home {
         };
         graph.mode = Mode::Changes;
         graph.working.focus.focus(window, cx);
+        if graph.working.message.is_none() {
+            let state = cx.new(|cx| {
+                TextareaState::new(window, cx)
+                    .auto_grow(3, 8)
+                    .placeholder("Commit message")
+            });
+            graph.working.message_subscription = Some(cx.subscribe_in(
+                &state,
+                window,
+                |_, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        cx.notify();
+                    }
+                },
+            ));
+            graph.working.message = Some(state);
+        }
+        self.refresh_working(cx);
+        cx.notify();
+    }
+
+    pub fn commit_staged(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let location = graph.location.clone();
+        let working = &mut graph.working;
+        let Some(state) = &working.message else {
+            return;
+        };
+        let message = state.read(cx).value().to_string();
+        if !working.can_commit(&message) {
+            return;
+        }
+        working.commit_error = None;
+        let task = cx.background_executor().spawn(async move {
+            commit(&location, &message).map_err(|error| error.to_string())
+        });
+        working.action_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            this.update_in(cx, |this, window, cx| this.finish_commit(result, window, cx))
+                .ok();
+        }));
+        cx.notify();
+    }
+
+    fn finish_commit(&mut self, result: Result<(), String>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        graph.working.action_task = None;
+        match result {
+            Ok(()) => {
+                if let Some(state) = &graph.working.message {
+                    state.update(cx, |state, cx| state.set_value("", window, cx));
+                }
+                self.reload_history(cx);
+            }
+            Err(text) => graph.working.commit_error = Some(text),
+        }
         self.refresh_working(cx);
         cx.notify();
     }
@@ -344,6 +418,34 @@ pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
     let stage_all_button = Button::new("stage-all")
         .label("Stage all")
         .on_click(cx.listener(|this, _, _, cx| this.stage_everything(cx)));
+    let text = working
+        .message
+        .as_ref()
+        .map(|state| state.read(cx).value().to_string())
+        .unwrap_or_default();
+    let danger = cx.theme().danger;
+    let commit_box = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap_1()
+        .children(working.message.as_ref().map(Textarea::new))
+        .children(working.commit_error.clone().map(|error| {
+            div()
+                .id("commit-error")
+                .max_h(px(COMMIT_ERROR_MAX_HEIGHT))
+                .overflow_y_scroll()
+                .text_xs()
+                .text_color(danger)
+                .child(error)
+        }))
+        .child(
+            Button::new("commit")
+                .primary()
+                .label("Commit")
+                .disabled(!working.can_commit(&text))
+                .on_click(cx.listener(|this, _, window, cx| this.commit_staged(window, cx))),
+        );
     let lists = div()
         .flex()
         .flex_col()
@@ -368,7 +470,8 @@ pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
                 .flex_1()
                 .min_h_0()
                 .child(group_list(Side::Unstaged, groups.unstaged.len(), cx)),
-        );
+        )
+        .child(commit_box);
     div()
         .id("changes")
         .track_focus(&working.focus)

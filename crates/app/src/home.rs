@@ -9,7 +9,7 @@ use gitcore::repo::open_repository;
 use gitcore::runner::Runner;
 use gpui::{
     AnyElement, AppContext, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement, PathPromptOptions,
-    Render, StatefulInteractiveElement, Styled, Window,
+    Render, ScrollStrategy, StatefulInteractiveElement, Styled, Window,
     UniformListScrollHandle, div, prelude::FluentBuilder, px, rgb, uniform_list,
 };
 use crate::working::{Mode, changes_view};
@@ -71,6 +71,7 @@ impl Home {
         }
         self.screen = Screen::Loading;
         cx.notify();
+        let source = path.clone();
         let task = cx
             .background_executor()
             .spawn(async move { open_repository(&path, BATCH_SIZE) });
@@ -79,12 +80,40 @@ impl Home {
             this.update(cx, |this, cx| {
                 this.screen = match result {
                     Ok(opened) => {
-                        Screen::Loaded(Box::new(GraphState::new(opened, cx.focus_handle())))
+                        let focus = cx.focus_handle();
+                        Screen::Loaded(Box::new(GraphState::new(opened, source, focus)))
                     }
                     Err(error) => Screen::Failed(error.to_string()),
                 };
                 this.load_more(cx);
                 this.refresh_working(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn reload_history(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph() else {
+            return;
+        };
+        let source = graph.source.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { open_repository(&source, BATCH_SIZE) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                let scroll = this.scroll.clone();
+                if let Some(graph) = this.graph_mut() {
+                    match result {
+                        Ok(opened) => graph.replace_history(opened),
+                        Err(error) => graph.error = Some(error.to_string()),
+                    }
+                    scroll.scroll_to_item(0, ScrollStrategy::Top);
+                }
+                this.load_more(cx);
                 cx.notify();
             })
             .ok();
