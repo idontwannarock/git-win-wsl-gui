@@ -1,3 +1,4 @@
+use crate::diff::WorktreeDiff;
 use crate::exec::CommandError;
 use crate::log::Oid;
 use crate::runner::RepoLocation;
@@ -53,6 +54,81 @@ pub struct Branch {
 pub struct Status {
     pub branch: Branch,
     pub entries: Vec<StatusEntry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileState {
+    Changed(ChangeKind),
+    Untracked,
+    Conflicted(ConflictKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkingFile {
+    pub path: String,
+    pub renamed_from: Option<String>,
+    pub state: FileState,
+    pub diff: WorktreeDiff,
+}
+
+impl WorkingFile {
+    pub fn patch_paths(&self) -> Vec<&str> {
+        let mut paths = vec![self.path.as_str()];
+        paths.extend(self.renamed_from.as_deref());
+        paths
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Groups {
+    pub staged: Vec<WorkingFile>,
+    pub unstaged: Vec<WorkingFile>,
+}
+
+impl Status {
+    pub fn groups(&self) -> Groups {
+        let mut groups = Groups::default();
+        for entry in &self.entries {
+            match entry {
+                StatusEntry::Tracked {
+                    path,
+                    renamed_from,
+                    staged,
+                    unstaged,
+                } => {
+                    let working = |state, diff, renamed_from| WorkingFile {
+                        path: path.clone(),
+                        renamed_from,
+                        state: FileState::Changed(state),
+                        diff,
+                    };
+                    if let Some(kind) = staged {
+                        groups
+                            .staged
+                            .push(working(*kind, WorktreeDiff::Staged, renamed_from.clone()));
+                    }
+                    if let Some(kind) = unstaged {
+                        groups
+                            .unstaged
+                            .push(working(*kind, WorktreeDiff::Unstaged, None));
+                    }
+                }
+                StatusEntry::Untracked { path } => groups.unstaged.push(WorkingFile {
+                    path: path.clone(),
+                    renamed_from: None,
+                    state: FileState::Untracked,
+                    diff: WorktreeDiff::Untracked,
+                }),
+                StatusEntry::Conflicted { path, kind } => groups.unstaged.push(WorkingFile {
+                    path: path.clone(),
+                    renamed_from: None,
+                    state: FileState::Conflicted(*kind),
+                    diff: WorktreeDiff::Unstaged,
+                }),
+            }
+        }
+        groups
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,6 +488,114 @@ mod tests {
             parse_status(&records(&[&line])),
             Err(ParseStatusError::BadRecord(_))
         ));
+    }
+
+    fn file(path: &str, state: FileState, diff: WorktreeDiff) -> WorkingFile {
+        WorkingFile {
+            path: path.to_owned(),
+            renamed_from: None,
+            state,
+            diff,
+        }
+    }
+
+    fn groups_of(entries: Vec<StatusEntry>) -> Groups {
+        Status {
+            branch: Branch::default(),
+            entries,
+        }
+        .groups()
+    }
+
+    #[test]
+    fn a_file_staged_and_edited_again_is_in_both_groups() {
+        let groups = groups_of(vec![tracked(
+            "a.txt",
+            Some(ChangeKind::Added),
+            Some(ChangeKind::Modified),
+        )]);
+
+        assert_eq!(
+            groups.staged,
+            [file("a.txt", FileState::Changed(ChangeKind::Added), WorktreeDiff::Staged)]
+        );
+        assert_eq!(
+            groups.unstaged,
+            [file("a.txt", FileState::Changed(ChangeKind::Modified), WorktreeDiff::Unstaged)]
+        );
+    }
+
+    #[test]
+    fn a_file_with_one_side_changed_is_in_one_group() {
+        let groups = groups_of(vec![
+            tracked("staged.txt", Some(ChangeKind::Modified), None),
+            tracked("edited.txt", None, Some(ChangeKind::Deleted)),
+        ]);
+
+        assert_eq!(groups.staged.len(), 1);
+        assert_eq!(groups.staged[0].path, "staged.txt");
+        assert_eq!(groups.unstaged.len(), 1);
+        assert_eq!(groups.unstaged[0].path, "edited.txt");
+    }
+
+    #[test]
+    fn untracked_files_are_unstaged_and_diffed_as_new_files() {
+        let groups = groups_of(vec![StatusEntry::Untracked { path: "new.txt".to_owned() }]);
+
+        assert!(groups.staged.is_empty());
+        assert_eq!(
+            groups.unstaged,
+            [file("new.txt", FileState::Untracked, WorktreeDiff::Untracked)]
+        );
+    }
+
+    #[test]
+    fn conflicted_files_are_unstaged() {
+        let groups = groups_of(vec![StatusEntry::Conflicted {
+            path: "c.txt".to_owned(),
+            kind: ConflictKind::BothModified,
+        }]);
+
+        assert!(groups.staged.is_empty());
+        assert_eq!(
+            groups.unstaged,
+            [file(
+                "c.txt",
+                FileState::Conflicted(ConflictKind::BothModified),
+                WorktreeDiff::Unstaged
+            )]
+        );
+    }
+
+    #[test]
+    fn a_staged_rename_keeps_its_old_path_and_needs_both_paths_for_its_patch() {
+        let groups = groups_of(vec![StatusEntry::Tracked {
+            path: "new.txt".to_owned(),
+            renamed_from: Some("old.txt".to_owned()),
+            staged: Some(ChangeKind::Renamed),
+            unstaged: None,
+        }]);
+
+        assert_eq!(groups.staged[0].patch_paths(), ["new.txt", "old.txt"]);
+    }
+
+    #[test]
+    fn a_file_without_a_rename_has_one_patch_path() {
+        let groups = groups_of(vec![tracked("a.txt", Some(ChangeKind::Modified), None)]);
+
+        assert_eq!(groups.staged[0].patch_paths(), ["a.txt"]);
+    }
+
+    #[test]
+    fn the_groups_keep_the_order_of_the_status() {
+        let groups = groups_of(vec![
+            tracked("b.txt", None, Some(ChangeKind::Modified)),
+            StatusEntry::Untracked { path: "a.txt".to_owned() },
+            tracked("c.txt", None, Some(ChangeKind::Modified)),
+        ]);
+
+        let names: Vec<&str> = groups.unstaged.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(names, ["b.txt", "a.txt", "c.txt"]);
     }
 
     fn sorted(mut status: Status) -> Vec<StatusEntry> {

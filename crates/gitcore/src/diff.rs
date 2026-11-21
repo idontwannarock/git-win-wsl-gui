@@ -28,10 +28,45 @@ pub fn commit_file_patch(
     Ok(String::from_utf8_lossy(&patch).into_owned())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorktreeDiff {
+    Staged,
+    Unstaged,
+    Untracked,
+}
+
+pub fn worktree_file_patch(
+    location: &RepoLocation,
+    kind: WorktreeDiff,
+    paths: &[&str],
+) -> Result<String, CommandError> {
+    let mut args = vec!["-c", "core.quotePath=false", "--literal-pathspecs", "diff"];
+    args.extend(["-M", "--no-color", "--no-textconv", "--no-ext-diff"]);
+    match kind {
+        WorktreeDiff::Staged => args.push("--cached"),
+        WorktreeDiff::Unstaged => {}
+        WorktreeDiff::Untracked => args.extend(["--no-index", "--", "/dev/null"]),
+    }
+    if kind != WorktreeDiff::Untracked {
+        args.push("--");
+    }
+    args.extend_from_slice(paths);
+    let output = location.run(&args)?;
+    let differs_without_error =
+        kind == WorktreeDiff::Untracked && output.code == Some(1) && output.stderr.is_empty();
+    if output.success() || differs_without_error {
+        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+    }
+    Err(CommandError::Failed(
+        String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::fixture::commit_all;
+    use crate::testutil::TempRepo;
     use std::path::Path;
 
     struct Repo {
@@ -241,6 +276,173 @@ mod tests {
         let error = commit_file_patch(&repo.location, &unknown, &["a.txt"]).unwrap_err();
 
         assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
+    }
+
+    fn worktree_patch(repo: &TempRepo, kind: WorktreeDiff, paths: &[&str]) -> String {
+        worktree_file_patch(&repo.location, kind, paths).unwrap()
+    }
+
+    #[test]
+    fn an_unstaged_change_gives_a_plain_patch_of_work_tree_against_index() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "one\ntwo\nthree\n");
+        repo.commit("first");
+        repo.git(&["config", "color.ui", "always"]);
+        repo.write("a.txt", "one\nTWO\nthree\n");
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Unstaged, &["a.txt"]);
+
+        assert!(patch.starts_with("diff --git a/a.txt b/a.txt\n"), "{patch}");
+        assert!(patch.contains("\n-two\n"));
+        assert!(patch.contains("\n+TWO\n"));
+        assert!(!has_escape(&patch));
+    }
+
+    #[test]
+    fn an_unstaged_patch_ignores_what_is_already_staged() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.commit("first");
+        repo.write("a.txt", "two\n");
+        repo.git(&["add", "a.txt"]);
+        repo.write("a.txt", "three\n");
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Unstaged, &["a.txt"]);
+
+        assert!(patch.contains("\n-two\n+three\n"), "{patch}");
+        assert!(!patch.contains("one"), "{patch}");
+    }
+
+    #[test]
+    fn a_staged_patch_compares_the_index_with_head() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.commit("first");
+        repo.write("a.txt", "two\n");
+        repo.git(&["add", "a.txt"]);
+        repo.write("a.txt", "three\n");
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Staged, &["a.txt"]);
+
+        assert!(patch.contains("\n-one\n+two\n"), "{patch}");
+        assert!(!patch.contains("three"), "{patch}");
+    }
+
+    #[test]
+    fn a_staged_patch_works_before_the_first_commit() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.git(&["add", "a.txt"]);
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Staged, &["a.txt"]);
+
+        assert!(patch.contains("new file mode"), "{patch}");
+        assert!(patch.contains("\n+one\n"), "{patch}");
+    }
+
+    #[test]
+    fn a_staged_rename_needs_both_paths_to_show_as_a_rename() {
+        let repo = TempRepo::new();
+        repo.write("old.txt", "line 1\nline 2\nline 3\nline 4\nline 5\n");
+        repo.commit("first");
+        repo.git(&["config", "diff.renames", "false"]);
+        repo.git(&["mv", "old.txt", "new.txt"]);
+
+        let both = worktree_patch(&repo, WorktreeDiff::Staged, &["new.txt", "old.txt"]);
+        let only_new = worktree_patch(&repo, WorktreeDiff::Staged, &["new.txt"]);
+
+        assert!(both.contains("rename from old.txt\nrename to new.txt"), "{both}");
+        assert!(only_new.contains("new file mode"), "{only_new}");
+    }
+
+    #[test]
+    fn an_untracked_file_gives_a_patch_of_a_new_file() {
+        let repo = TempRepo::new();
+        repo.write("sub dir/新檔.txt", "hello\nworld\n");
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Untracked, &["sub dir/新檔.txt"]);
+
+        assert!(patch.contains("new file mode"), "{patch}");
+        assert!(patch.contains("+++ b/sub dir/新檔.txt"), "{patch}");
+        assert!(patch.contains("\n+hello\n+world\n"), "{patch}");
+    }
+
+    #[test]
+    fn a_binary_untracked_file_gives_a_binary_marker() {
+        let repo = TempRepo::new();
+        std::fs::write(repo.dir.path().join("a.bin"), [0u8, 1, 2, 0, 255]).unwrap();
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Untracked, &["a.bin"]);
+
+        assert!(patch.contains("Binary files"), "{patch}");
+    }
+
+    #[test]
+    fn file_names_with_wildcard_characters_are_plain_names() {
+        let repo = TempRepo::new();
+        repo.write("[x].txt", "one\n");
+        repo.write("x.txt", "other\n");
+        repo.commit("first");
+        repo.write("[x].txt", "two\n");
+        repo.write("x.txt", "another\n");
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Unstaged, &["[x].txt"]);
+
+        assert!(patch.contains("+two"), "{patch}");
+        assert!(!patch.contains("another"), "{patch}");
+    }
+
+    #[test]
+    fn an_external_diff_tool_in_the_config_does_not_replace_the_patch() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.commit("first");
+        repo.git(&["config", "diff.external", "false"]);
+        repo.write("a.txt", "two\n");
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Unstaged, &["a.txt"]);
+
+        assert!(patch.contains("\n+two\n"), "{patch}");
+    }
+
+    #[test]
+    fn a_file_without_changes_gives_an_empty_patch() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "one\n");
+        repo.commit("first");
+
+        assert_eq!(worktree_patch(&repo, WorktreeDiff::Unstaged, &["a.txt"]), "");
+        assert_eq!(worktree_patch(&repo, WorktreeDiff::Staged, &["a.txt"]), "");
+    }
+
+    #[test]
+    fn a_missing_untracked_file_reports_the_git_error() {
+        let repo = TempRepo::new();
+
+        let error = worktree_file_patch(&repo.location, WorktreeDiff::Untracked, &["missing.txt"])
+            .unwrap_err();
+
+        assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
+    }
+
+    #[test]
+    fn gives_work_tree_patches_in_a_wsl_repository() {
+        let Some(scratch) = crate::testutil::WslScratch::create() else {
+            return;
+        };
+        let location = RepoLocation::parse(&scratch.unc()).unwrap();
+        location.run_checked(&["init", "-q", "-b", "main"]).unwrap();
+        let root = Path::new(&scratch.unc()).to_path_buf();
+        std::fs::write(root.join("a.txt"), b"one\n").unwrap();
+        commit_all(&location, "first").unwrap();
+        std::fs::write(root.join("a.txt"), b"two\n").unwrap();
+        std::fs::write(root.join("new.txt"), b"fresh\n").unwrap();
+
+        let unstaged = worktree_file_patch(&location, WorktreeDiff::Unstaged, &["a.txt"]).unwrap();
+        let untracked = worktree_file_patch(&location, WorktreeDiff::Untracked, &["new.txt"]).unwrap();
+
+        assert!(unstaged.contains("\n+two\n"), "{unstaged}");
+        assert!(untracked.contains("\n+fresh\n"), "{untracked}");
     }
 
     #[test]
