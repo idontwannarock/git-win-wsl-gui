@@ -2,6 +2,7 @@ mod bench;
 mod detail;
 mod graph;
 mod home;
+mod working;
 #[cfg(test)]
 mod patch_parse_tests;
 

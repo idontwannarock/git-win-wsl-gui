@@ -1,0 +1,396 @@
+use crate::detail::{Load, file_row, name_and_folder};
+use crate::home::Home;
+use gitcore::diff::worktree_file_patch;
+use gitcore::exec::CommandError;
+use gitcore::index::{stage, stage_all, unstage};
+use gitcore::runner::RepoLocation;
+use gitcore::status::{
+    ChangeKind, FileState, Groups, Status, StatusError, WorkingFile, read_status,
+};
+use gpui::{
+    AnyElement, AppContext, Context, Entity, FocusHandle, Hsla, InteractiveElement, IntoElement,
+    KeyDownEvent, ParentElement, StatefulInteractiveElement, Styled, Task, Window, div, px,
+    uniform_list,
+};
+use gpui_component::ActiveTheme;
+use gpui_component::button::Button;
+use gpui_component::diff::{Diff, DiffFile, DiffState};
+use gpui_component::label::Label;
+use std::ops::Range;
+
+const LIST_WIDTH: f32 = 320.0;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Staged,
+    Unstaged,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    History,
+    Changes,
+}
+
+pub struct Working {
+    pub groups: Option<Groups>,
+    pub selected: Option<(Side, String)>,
+    pub patch: Option<Load<Entity<DiffState>>>,
+    pub error: Option<String>,
+    pub focus: FocusHandle,
+    status_task: Option<Task<()>>,
+    patch_task: Option<Task<()>>,
+    action_task: Option<Task<()>>,
+}
+
+impl Working {
+    pub fn new(focus: FocusHandle) -> Self {
+        Self {
+            groups: None,
+            selected: None,
+            patch: None,
+            error: None,
+            focus,
+            status_task: None,
+            patch_task: None,
+            action_task: None,
+        }
+    }
+
+    pub fn change_count(&self) -> usize {
+        self.groups
+            .as_ref()
+            .map_or(0, |groups| groups.staged.len() + groups.unstaged.len())
+    }
+
+    fn list(&self, side: Side) -> &[WorkingFile] {
+        match (&self.groups, side) {
+            (None, _) => &[],
+            (Some(groups), Side::Staged) => &groups.staged,
+            (Some(groups), Side::Unstaged) => &groups.unstaged,
+        }
+    }
+
+    fn selected_file(&self) -> Option<&WorkingFile> {
+        let (side, path) = self.selected.as_ref()?;
+        self.list(*side).iter().find(|file| &file.path == path)
+    }
+
+    fn next_after_selected(&self) -> Option<String> {
+        let (side, path) = self.selected.as_ref()?;
+        let list = self.list(*side);
+        let index = list.iter().position(|file| &file.path == path)?;
+        let neighbour = list
+            .get(index + 1)
+            .or_else(|| index.checked_sub(1).and_then(|before| list.get(before)))?;
+        Some(neighbour.path.clone())
+    }
+}
+
+fn badge(state: FileState, cx: &Context<Home>) -> (&'static str, Hsla) {
+    let colors = cx.theme();
+    match state {
+        FileState::Changed(ChangeKind::Added) => ("A", colors.success),
+        FileState::Changed(ChangeKind::Modified) => ("M", colors.warning),
+        FileState::Changed(ChangeKind::Deleted) => ("D", colors.danger),
+        FileState::Changed(ChangeKind::TypeChanged) => ("T", colors.muted_foreground),
+        FileState::Changed(ChangeKind::Renamed) => ("R", colors.info),
+        FileState::Changed(ChangeKind::Copied) => ("C", colors.info),
+        FileState::Untracked => ("U", colors.success),
+        FileState::Conflicted(_) => ("!", colors.danger),
+    }
+}
+
+impl Home {
+    pub fn show_history(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut() {
+            graph.mode = Mode::History;
+            cx.notify();
+        }
+    }
+
+    pub fn show_changes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        graph.mode = Mode::Changes;
+        graph.working.focus.focus(window, cx);
+        self.refresh_working(cx);
+        cx.notify();
+    }
+
+    pub fn refresh_working(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let location = graph.location.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { read_status(&location) });
+        graph.working.status_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| this.finish_status(result, cx)).ok();
+        }));
+    }
+
+    fn finish_status(&mut self, result: Result<Status, StatusError>, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let working = &mut graph.working;
+        working.status_task = None;
+        match result {
+            Ok(status) => {
+                working.groups = Some(status.groups());
+                working.error = None;
+            }
+            Err(error) => working.error = Some(error.to_string()),
+        }
+        if working.selected.is_some() && working.selected_file().is_none() {
+            working.selected = None;
+            working.patch = None;
+            working.patch_task = None;
+        }
+        let needs_patch = working.selected.is_some() && working.patch.is_none();
+        if needs_patch {
+            self.load_working_patch(cx);
+        }
+        cx.notify();
+    }
+
+    pub fn select_working(&mut self, side: Side, path: String, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        graph.working.selected = Some((side, path));
+        self.load_working_patch(cx);
+    }
+
+    fn load_working_patch(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let location = graph.location.clone();
+        let working = &mut graph.working;
+        let Some(file) = working.selected_file() else {
+            return;
+        };
+        let kind = file.diff;
+        let paths: Vec<String> = file.patch_paths().into_iter().map(str::to_owned).collect();
+        let task = cx.background_executor().spawn(async move {
+            let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+            let patch = worktree_file_patch(&location, kind, &paths).map_err(|error| error.to_string())?;
+            DiffFile::parse(&patch).map_err(|error| error.to_string())
+        });
+        working.patch = Some(Load::Loading);
+        working.patch_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| this.finish_working_patch(result, cx)).ok();
+        }));
+        cx.notify();
+    }
+
+    fn finish_working_patch(&mut self, result: Result<Vec<DiffFile>, String>, cx: &mut Context<Self>) {
+        let patch = match result {
+            Ok(files) => Load::Ready(cx.new(|cx| DiffState::new(files, cx))),
+            Err(message) => Load::Failed(message),
+        };
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        graph.working.patch_task = None;
+        graph.working.patch = Some(patch);
+        cx.notify();
+    }
+
+    pub fn toggle_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let working = &mut graph.working;
+        let Some((side, _)) = working.selected.clone() else {
+            return;
+        };
+        let Some(file) = working.selected_file() else {
+            return;
+        };
+        let paths: Vec<String> = file.patch_paths().into_iter().map(str::to_owned).collect();
+        let next = working.next_after_selected();
+        working.selected = next.map(|path| (side, path));
+        working.patch = None;
+        working.patch_task = None;
+        self.run_index_action(
+            move |location| {
+                let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+                match side {
+                    Side::Staged => unstage(location, &paths),
+                    Side::Unstaged => stage(location, &paths),
+                }
+            },
+            cx,
+        );
+    }
+
+    pub fn stage_everything(&mut self, cx: &mut Context<Self>) {
+        self.run_index_action(stage_all, cx);
+    }
+
+    fn run_index_action(
+        &mut self,
+        action: impl FnOnce(&RepoLocation) -> Result<(), CommandError> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        if graph.working.action_task.is_some() {
+            return;
+        }
+        let location = graph.location.clone();
+        let task = cx.background_executor().spawn(async move {
+            action(&location).map_err(|error| error.to_string())
+        });
+        graph.working.action_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| this.finish_action(result, cx)).ok();
+        }));
+        cx.notify();
+    }
+
+    fn finish_action(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        graph.working.action_task = None;
+        if let Err(message) = result {
+            graph.working.error = Some(message);
+        }
+        self.refresh_working(cx);
+        cx.notify();
+    }
+
+    pub fn working_rows(&mut self, side: Side, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let selected_background = cx.theme().list_active;
+        let muted = cx.theme().muted_foreground;
+        let Some(graph) = self.graph() else {
+            return Vec::new();
+        };
+        let working = &graph.working;
+        let selected_path = working
+            .selected
+            .as_ref()
+            .filter(|(selected_side, _)| *selected_side == side)
+            .map(|(_, path)| path.as_str());
+        let id = match side {
+            Side::Staged => "staged",
+            Side::Unstaged => "unstaged",
+        };
+        let list = working.list(side);
+        range
+            .filter_map(|index| list.get(index).map(|file| (index, file)))
+            .map(|(index, file)| {
+                let (name, folder) = name_and_folder(&file.path, file.renamed_from.as_deref());
+                let selected = (selected_path == Some(file.path.as_str())).then_some(selected_background);
+                let path = file.path.clone();
+                let focus = working.focus.clone();
+                file_row((id, index), badge(file.state, cx), name, folder, selected, muted)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        focus.focus(window, cx);
+                        this.select_working(side, path.clone(), cx);
+                    }))
+                    .into_any_element()
+            })
+            .collect()
+    }
+}
+
+fn group_header(title: String, action: Option<Button>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_between()
+        .child(Label::new(title))
+        .children(action)
+}
+
+fn group_list(side: Side, count: usize, cx: &mut Context<Home>) -> AnyElement {
+    if count == 0 {
+        return Label::new("No files").into_any_element();
+    }
+    let id = match side {
+        Side::Staged => "staged-list",
+        Side::Unstaged => "unstaged-list",
+    };
+    uniform_list(
+        id,
+        count,
+        cx.processor(move |this, range, _, cx| this.working_rows(side, range, cx)),
+    )
+    .size_full()
+    .into_any_element()
+}
+
+pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
+    let Some(groups) = &working.groups else {
+        return Label::new("Reading changes...").into_any_element();
+    };
+    let patch = match &working.patch {
+        None => div().into_any_element(),
+        Some(Load::Loading) => Label::new("Loading diff...").into_any_element(),
+        Some(Load::Failed(message)) => Label::new(message.clone()).into_any_element(),
+        Some(Load::Ready(state)) => Diff::new(state).size_full().into_any_element(),
+    };
+    let stage_all_button = Button::new("stage-all")
+        .label("Stage all")
+        .on_click(cx.listener(|this, _, _, cx| this.stage_everything(cx)));
+    let lists = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .w(px(LIST_WIDTH))
+        .h_full()
+        .min_h_0()
+        .gap_1()
+        .child(group_header(format!("Staged ({})", groups.staged.len()), None))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .child(group_list(Side::Staged, groups.staged.len(), cx)),
+        )
+        .child(group_header(
+            format!("Unstaged ({})", groups.unstaged.len()),
+            Some(stage_all_button),
+        ))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .child(group_list(Side::Unstaged, groups.unstaged.len(), cx)),
+        );
+    div()
+        .id("changes")
+        .track_focus(&working.focus)
+        .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+            if event.keystroke.key == "space" {
+                this.toggle_selected(cx);
+            }
+        }))
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .gap_1()
+        .children(working.error.clone().map(Label::new))
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_h_0()
+                .gap_2()
+                .child(lists)
+                .child(div().flex_1().min_w_0().h_full().min_h_0().child(patch)),
+        )
+        .into_any_element()
+}

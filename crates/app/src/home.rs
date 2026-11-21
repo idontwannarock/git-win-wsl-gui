@@ -12,7 +12,9 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Window,
     UniformListScrollHandle, div, prelude::FluentBuilder, px, rgb, uniform_list,
 };
+use crate::working::{Mode, changes_view};
 use gpui_component::ActiveTheme;
+use gpui_component::Selectable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::diff::{DiffFile, DiffState};
 use gpui_component::label::Label;
@@ -49,6 +51,20 @@ impl Home {
         }
     }
 
+    pub fn graph(&self) -> Option<&GraphState> {
+        match &self.screen {
+            Screen::Loaded(graph) => Some(graph),
+            _ => None,
+        }
+    }
+
+    pub fn graph_mut(&mut self) -> Option<&mut GraphState> {
+        match &mut self.screen {
+            Screen::Loaded(graph) => Some(graph),
+            _ => None,
+        }
+    }
+
     pub fn open(&mut self, path: String, cx: &mut Context<Self>) {
         if let Some(bench) = &mut self.bench {
             bench.start();
@@ -62,10 +78,13 @@ impl Home {
             let result = task.await;
             this.update(cx, |this, cx| {
                 this.screen = match result {
-                    Ok(opened) => Screen::Loaded(Box::new(GraphState::new(opened))),
+                    Ok(opened) => {
+                        Screen::Loaded(Box::new(GraphState::new(opened, cx.focus_handle())))
+                    }
                     Err(error) => Screen::Failed(error.to_string()),
                 };
                 this.load_more(cx);
+                this.refresh_working(cx);
                 cx.notify();
             })
             .ok();
@@ -256,24 +275,54 @@ impl Home {
             (None, 0) => "Loading commits...".to_owned(),
             (None, count) => format!("{} - {count} commits loaded", describe(graph)),
         };
+        let history = graph.mode == Mode::History;
+        let tabs = div()
+            .flex()
+            .flex_none()
+            .gap_2()
+            .child(
+                Button::new("history")
+                    .label("History")
+                    .selected(history)
+                    .on_click(cx.listener(|this, _, _, cx| this.show_history(cx))),
+            )
+            .child(
+                Button::new("changes")
+                    .label(format!("Changes ({})", graph.working.change_count()))
+                    .selected(!history)
+                    .on_click(cx.listener(|this, _, window, cx| this.show_changes(window, cx))),
+            );
+        let body = if history {
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .gap_1()
+                .child(Label::new(status))
+                .child(
+                    uniform_list(
+                        "graph",
+                        graph.rows.len(),
+                        cx.processor(|this, range, _, cx| this.rows_in(range, cx)),
+                    )
+                    .flex_1()
+                    .min_h_0()
+                    .track_scroll(&self.scroll),
+                )
+                .children(graph.detail.as_ref().map(|detail| detail_view(detail, cx)))
+                .into_any_element()
+        } else {
+            changes_view(&graph.working, cx)
+        };
         div()
             .flex()
             .flex_col()
             .flex_1()
             .min_h_0()
             .gap_1()
-            .child(Label::new(status))
-            .child(
-                uniform_list(
-                    "graph",
-                    graph.rows.len(),
-                    cx.processor(|this, range, _, cx| this.rows_in(range, cx)),
-                )
-                .flex_1()
-                .min_h_0()
-                .track_scroll(&self.scroll),
-            )
-            .children(graph.detail.as_ref().map(|detail| detail_view(detail, cx)))
+            .child(tabs)
+            .child(body)
             .into_any_element()
     }
 }

@@ -2,8 +2,9 @@ use crate::home::{Home, format_time};
 use gitcore::changes::FileChange;
 use gitcore::log::Commit;
 use gpui::{
-    AnyElement, Context, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, Task, div, prelude::FluentBuilder, px, uniform_list,
+    AnyElement, Context, Div, ElementId, Entity, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Stateful, StatefulInteractiveElement, Styled, Task, div,
+    prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::ActiveTheme;
 use gpui_component::diff::{Diff, DiffState};
@@ -56,16 +57,46 @@ fn status_badge(change: &FileChange, cx: &Context<Home>) -> (&'static str, Hsla)
     }
 }
 
-fn name_and_folder(change: &FileChange) -> (String, String) {
-    let path = change.path();
+pub fn name_and_folder(path: &str, from: Option<&str>) -> (String, String) {
     let (folder, name) = path.rsplit_once('/').unwrap_or(("", path));
-    let folder = match change {
-        FileChange::Renamed { from, .. } | FileChange::Copied { from, .. } => {
-            format!("{folder}  (from {from})")
-        }
-        _ => folder.to_owned(),
+    let folder = match from {
+        Some(from) => format!("{folder}  (from {from})"),
+        None => folder.to_owned(),
     };
     (name.to_owned(), folder)
+}
+
+pub fn file_row(
+    id: impl Into<ElementId>,
+    badge: (&'static str, Hsla),
+    name: String,
+    folder: String,
+    selected: Option<Hsla>,
+    muted: Hsla,
+) -> Stateful<Div> {
+    let (letter, color) = badge;
+    div()
+        .id(id)
+        .w_full()
+        .h(px(FILE_ROW_HEIGHT))
+        .flex()
+        .items_center()
+        .gap_2()
+        .px_2()
+        .when_some(selected, |row, background| row.bg(background))
+        .child(div().flex_none().w(px(14.0)).text_color(color).child(letter))
+        .child(div().flex_none().whitespace_nowrap().child(name))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_xs()
+                .text_color(muted)
+                .child(folder),
+        )
 }
 
 pub fn file_rows(detail: &Detail, range: Range<usize>, cx: &mut Context<Home>) -> Vec<AnyElement> {
@@ -77,33 +108,14 @@ pub fn file_rows(detail: &Detail, range: Range<usize>, cx: &mut Context<Home>) -
     range
         .filter_map(|index| files.get(index).map(|change| (index, change)))
         .map(|(index, change)| {
-            let (letter, color) = status_badge(change, cx);
-            let (name, folder) = name_and_folder(change);
-            div()
-                .id(("file", index))
-                .w_full()
-                .h(px(FILE_ROW_HEIGHT))
-                .flex()
-                .items_center()
-                .gap_2()
-                .px_2()
-                .when(detail.selected_file == Some(index), |row| {
-                    row.bg(selected_background)
-                })
+            let from = match change {
+                FileChange::Renamed { from, .. } | FileChange::Copied { from, .. } => Some(from.as_str()),
+                _ => None,
+            };
+            let (name, folder) = name_and_folder(change.path(), from);
+            let selected = (detail.selected_file == Some(index)).then_some(selected_background);
+            file_row(("file", index), status_badge(change, cx), name, folder, selected, muted)
                 .on_click(cx.listener(move |this, _, _, cx| this.select_file(index, cx)))
-                .child(div().flex_none().w(px(14.0)).text_color(color).child(letter))
-                .child(div().flex_none().whitespace_nowrap().child(name))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(folder),
-                )
                 .into_any_element()
         })
         .collect()

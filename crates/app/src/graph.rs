@@ -1,4 +1,5 @@
 use crate::detail::Detail;
+use crate::working::{Mode, Working};
 use gitcore::lanes::{GraphRow, LaneLayout};
 use gitcore::log::{Commit, Oid};
 use gitcore::refs::RefLabel;
@@ -6,7 +7,7 @@ use gitcore::repo::OpenedRepo;
 use gitcore::runner::RepoLocation;
 use gitcore::stream::{LogStream, StreamError};
 use gpui::{
-    Bounds, IntoElement, PathBuilder, Pixels, Point, Rgba, Styled, Task, Window, canvas, fill,
+    Bounds, FocusHandle, IntoElement, PathBuilder, Pixels, Point, Rgba, Styled, Task, Window, canvas, fill,
     point, px, rgb,
 };
 use std::collections::HashMap;
@@ -28,6 +29,8 @@ pub struct GraphState {
     pub rows: Vec<CommitRow>,
     pub refs: HashMap<Oid, Vec<RefLabel>>,
     pub detail: Option<Detail>,
+    pub mode: Mode,
+    pub working: Working,
     pub error: Option<String>,
     pub reading: Option<Task<()>>,
     pub stream: Option<LogStream>,
@@ -35,11 +38,13 @@ pub struct GraphState {
 }
 
 impl GraphState {
-    pub fn new(opened: OpenedRepo) -> Self {
+    pub fn new(opened: OpenedRepo, focus: FocusHandle) -> Self {
         Self {
             location: opened.location,
             refs: opened.refs,
             detail: None,
+            mode: Mode::History,
+            working: Working::new(focus),
             rows: Vec::new(),
             error: None,
             reading: None,

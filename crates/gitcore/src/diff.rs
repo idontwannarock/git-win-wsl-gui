@@ -2,9 +2,10 @@ use crate::exec::CommandError;
 use crate::log::Oid;
 use crate::runner::RepoLocation;
 
-const SHOW_ARGS: [&str; 10] = [
+const SHOW_ARGS: [&str; 11] = [
     "-c",
     "core.quotePath=false",
+    "--literal-pathspecs",
     "show",
     "--format=",
     "--patch",
@@ -276,6 +277,19 @@ mod tests {
         let error = commit_file_patch(&repo.location, &unknown, &["a.txt"]).unwrap_err();
 
         assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_commit_patch_treats_wildcard_characters_in_a_path_as_plain_characters() {
+        let repo = TempRepo::new();
+        repo.write("[x].txt", "one\n");
+        repo.write("x.txt", "other\n");
+        let first = commit_all(&repo.location, "first").unwrap();
+
+        let patch = commit_file_patch(&repo.location, &first, &["[x].txt"]).unwrap();
+
+        assert!(patch.contains("[x].txt"), "{patch}");
+        assert!(!patch.contains("other"), "{patch}");
     }
 
     fn worktree_patch(repo: &TempRepo, kind: WorktreeDiff, paths: &[&str]) -> String {

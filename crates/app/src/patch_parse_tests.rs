@@ -1,4 +1,4 @@
-use gitcore::diff::commit_file_patch;
+use gitcore::diff::{WorktreeDiff, commit_file_patch, worktree_file_patch};
 use gitcore::fixture::commit_all;
 use gitcore::log::Oid;
 use gitcore::runner::RepoLocation;
@@ -96,4 +96,36 @@ fn a_path_with_non_ascii_characters_parses() {
     let file = repo.parsed(&first, &["檔案.txt"]);
 
     assert_eq!(file.path().as_ref(), "檔案.txt");
+}
+
+fn parse_worktree(repo: &Repo, kind: WorktreeDiff, paths: &[&str]) -> DiffFile {
+    let patch = worktree_file_patch(&repo.location, kind, paths).unwrap();
+    let mut files = DiffFile::parse(&patch).unwrap_or_else(|error| panic!("{error:?}\n{patch}"));
+    assert_eq!(files.len(), 1, "{patch}");
+    files.remove(0)
+}
+
+#[test]
+fn an_untracked_file_parses_as_an_added_file() {
+    let repo = Repo::new();
+    repo.write("新 檔.txt", "one\ntwo\n".as_bytes());
+
+    let file = parse_worktree(&repo, WorktreeDiff::Untracked, &["新 檔.txt"]);
+
+    assert_eq!(file.status(), DiffFileStatus::Added);
+    assert_eq!(file.path().as_ref(), "新 檔.txt");
+    assert_eq!(file.additions(), 2);
+}
+
+#[test]
+fn a_staged_rename_parses_with_its_old_and_new_path() {
+    let repo = Repo::new();
+    repo.write("old.txt", b"line 1\nline 2\nline 3\nline 4\nline 5\n");
+    repo.commit("first");
+    repo.location.run_checked(&["mv", "old.txt", "new.txt"]).unwrap();
+
+    let file = parse_worktree(&repo, WorktreeDiff::Staged, &["new.txt", "old.txt"]);
+
+    assert_eq!(file.status(), DiffFileStatus::Renamed);
+    assert_eq!(file.original_path().map(|path| path.as_ref()), Some("old.txt"));
 }

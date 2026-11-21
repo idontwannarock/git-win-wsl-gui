@@ -64,7 +64,7 @@
 
 - [x] 4.1 (tdd) `gitcore`: `status --porcelain=v2 -z --branch` parser. Fixtures for modified, added, deleted, renamed, untracked, conflicted.
 - [x] 4.2 (tdd) `gitcore`: stage, unstage, stage all, commit. Real temp repository tests, including a failing pre-commit hook.
-- [ ] 4.3 `app`: staged and unstaged lists, diff of the selected file (index vs HEAD, work tree vs index), Space to toggle, "Stage all".
+- [x] 4.3 `app`: staged and unstaged lists, diff of the selected file (index vs HEAD, work tree vs index), Space to toggle, "Stage all".
 - [ ] 4.4 `app`: commit message box and commit action. Disable on empty message or nothing staged. Show hook output on failure.
 - [ ] 4.5 `app`: refresh on focus, after own actions, and every 2 seconds while focused.
 
