@@ -1,4 +1,5 @@
 use crate::bench::ScrollBench;
+use crate::branches::branches_view;
 use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
@@ -374,7 +375,23 @@ impl Home {
             .min_h_0()
             .gap_1()
             .child(tabs)
-            .child(body)
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .gap_2()
+                    .child(branches_view(graph, cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .child(body),
+                    ),
+            )
             .into_any_element()
     }
 }

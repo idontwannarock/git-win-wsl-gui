@@ -1,4 +1,5 @@
 mod bench;
+mod branches;
 mod detail;
 mod graph;
 mod home;

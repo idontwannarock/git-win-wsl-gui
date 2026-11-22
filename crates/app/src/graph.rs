@@ -1,3 +1,4 @@
+use crate::branches::BranchPanel;
 use crate::detail::Detail;
 use crate::working::{Mode, Working};
 use gitcore::lanes::{GraphRow, LaneLayout};
@@ -32,6 +33,7 @@ pub struct GraphState {
     pub detail: Option<Detail>,
     pub mode: Mode,
     pub working: Working,
+    pub branches: BranchPanel,
     pub error: Option<String>,
     pub reading: Option<Task<()>>,
     pub stream: Option<LogStream>,
@@ -41,6 +43,7 @@ pub struct GraphState {
 impl GraphState {
     pub fn replace_history(&mut self, opened: OpenedRepo) {
         self.location = opened.location;
+        self.branches.show_refs(&opened.refs);
         self.refs = opened.refs;
         self.stream = Some(opened.stream);
         self.rows.clear();
@@ -54,6 +57,7 @@ impl GraphState {
         Self {
             source,
             location: opened.location,
+            branches: BranchPanel::new(&opened.refs),
             refs: opened.refs,
             detail: None,
             mode: Mode::History,

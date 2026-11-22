@@ -47,7 +47,7 @@ pub struct Working {
     message_subscription: Option<Subscription>,
     status_task: Option<Task<()>>,
     patch_task: Option<Task<()>>,
-    action_task: Option<Task<()>>,
+    pub action_task: Option<Task<()>>,
 }
 
 impl Working {
@@ -74,9 +74,13 @@ impl Working {
             .map_or(0, |groups| groups.staged.len() + groups.unstaged.len())
     }
 
+    pub fn busy(&self) -> bool {
+        self.action_task.is_some()
+    }
+
     fn can_commit(&self, message: &str) -> bool {
         let has_staged = self.groups.as_ref().is_some_and(|groups| !groups.staged.is_empty());
-        has_staged && !message.trim().is_empty() && self.action_task.is_none()
+        has_staged && !message.trim().is_empty() && !self.busy()
     }
 
     fn list(&self, side: Side) -> &[WorkingFile] {
