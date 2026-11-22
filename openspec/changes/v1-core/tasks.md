@@ -70,7 +70,7 @@
 
 ## 5. Slice: branches (blocked by 2)
 
-- [ ] 5.1 (tdd) `gitcore`: branch list (local, remote, current) and checkout, including the tracking branch for a remote name. Real temp repository tests, including a refused checkout.
+- [x] 5.1 (tdd) `gitcore`: branch list (local, remote, current) and checkout, including the tracking branch for a remote name. Real temp repository tests, including a refused checkout.
 - [ ] 5.2 `app`: branch side panel, double-click and menu checkout, error text on failure. Graph and status update after checkout.
 
 ## 6. Slice: theme and accessibility (can start after 1; finish last)

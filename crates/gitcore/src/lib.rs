@@ -1,3 +1,4 @@
+pub mod branch;
 pub mod changes;
 pub mod diff;
 pub mod exec;
