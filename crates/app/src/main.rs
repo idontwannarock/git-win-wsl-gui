@@ -3,6 +3,7 @@ mod branches;
 mod detail;
 mod graph;
 mod home;
+mod theme;
 mod working;
 #[cfg(test)]
 mod patch_parse_tests;
@@ -15,6 +16,7 @@ fn main() {
     let initial_path = std::env::args().nth(1);
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
+        theme::apply(cx);
         cx.open_window(WindowOptions::default(), |window, cx| {
             let home = cx.new(|cx| Home::new(window, cx));
             if let Some(path) = initial_path {

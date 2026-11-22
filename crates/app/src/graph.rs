@@ -1,5 +1,6 @@
 use crate::branches::BranchPanel;
 use crate::detail::Detail;
+use crate::theme::lane_color;
 use crate::working::{Mode, Working};
 use gitcore::lanes::{GraphRow, LaneLayout};
 use gitcore::log::{Commit, Oid};
@@ -8,8 +9,8 @@ use gitcore::repo::OpenedRepo;
 use gitcore::runner::RepoLocation;
 use gitcore::stream::{LogStream, StreamError};
 use gpui::{
-    Bounds, FocusHandle, IntoElement, PathBuilder, Pixels, Point, Rgba, Styled, Task, Window, canvas, fill,
-    point, px, rgb,
+    Bounds, FocusHandle, IntoElement, PathBuilder, Pixels, Point, Styled, Task, Window, canvas, fill,
+    point, px,
 };
 use std::collections::HashMap;
 
@@ -18,7 +19,6 @@ const LANE_WIDTH: f32 = 14.0;
 const VISIBLE_LANES: usize = 8;
 const LINE_WIDTH: f32 = 2.0;
 const DOT_SIZE: f32 = 8.0;
-const LANE_COLORS: [u32; 6] = [0x4fc1ff, 0xc586c0, 0xdcdcaa, 0x6a9955, 0xce9178, 0x9cdcfe];
 
 pub struct CommitRow {
     pub commit: Commit,
@@ -99,10 +99,6 @@ pub fn lane_cell(row: &CommitRow) -> impl IntoElement {
     .w(px(LANE_WIDTH * VISIBLE_LANES as f32))
     .h(px(ROW_HEIGHT))
     .flex_none()
-}
-
-fn lane_color(lane: usize) -> Rgba {
-    rgb(LANE_COLORS[lane % LANE_COLORS.len()])
 }
 
 fn paint_lanes(window: &mut Window, bounds: Bounds<Pixels>, row: &GraphRow) {

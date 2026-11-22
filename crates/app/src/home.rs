@@ -1,17 +1,18 @@
 use crate::bench::ScrollBench;
 use crate::branches::branches_view;
+use crate::theme::chip_colors;
 use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
 use gitcore::changes::{ChangesError, FileChange, commit_changes};
 use gitcore::diff::commit_file_patch;
-use gitcore::refs::{RefKind, RefLabel};
+use gitcore::refs::RefLabel;
 use gitcore::repo::open_repository;
 use gitcore::runner::Runner;
 use gpui::{
     AnyElement, AppContext, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement, PathPromptOptions,
     Render, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription, Task, Window,
-    UniformListScrollHandle, div, prelude::FluentBuilder, px, rgb, uniform_list,
+    UniformListScrollHandle, div, prelude::FluentBuilder, px, uniform_list,
 };
 use crate::working::{Mode, changes_view};
 use gpui_component::ActiveTheme;
@@ -464,12 +465,7 @@ fn commit_row(row: &CommitRow, labels: &[RefLabel], background: Option<Hsla>) ->
 }
 
 fn label_chip(label: &RefLabel) -> impl IntoElement {
-    let (background, text) = match (label.kind, label.is_head) {
-        (RefKind::Branch, true) => (0x1f6feb, 0xffffff),
-        (RefKind::Branch, false) => (0x1d3b5c, 0xdbe9ff),
-        (RefKind::RemoteBranch, _) => (0x3a3a3a, 0xe0e0e0),
-        (RefKind::Tag, _) => (0x5c4a12, 0xfff2c2),
-    };
+    let (background, text) = chip_colors(label.kind, label.is_head);
     div()
         .flex_none()
         .max_w(px(LABEL_MAX_WIDTH))
@@ -479,8 +475,8 @@ fn label_chip(label: &RefLabel) -> impl IntoElement {
         .overflow_hidden()
         .whitespace_nowrap()
         .text_ellipsis()
-        .bg(rgb(background))
-        .text_color(rgb(text))
+        .bg(background)
+        .text_color(text)
         .child(label.name.clone())
 }
 
