@@ -231,7 +231,7 @@ impl Home {
             working.patch = None;
             working.patch_task = None;
         }
-        if working.selected.is_some() {
+        if working.selected.is_some() && working.patch_task.is_none() {
             self.load_working_patch(cx);
         }
         cx.notify();
