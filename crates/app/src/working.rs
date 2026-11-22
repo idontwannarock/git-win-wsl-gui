@@ -39,6 +39,7 @@ pub struct Working {
     pub groups: Option<Groups>,
     pub selected: Option<(Side, String)>,
     pub patch: Option<Load<Entity<DiffState>>>,
+    patch_text: String,
     pub error: Option<String>,
     pub focus: FocusHandle,
     pub message: Option<Entity<TextareaState>>,
@@ -55,6 +56,7 @@ impl Working {
             groups: None,
             selected: None,
             patch: None,
+            patch_text: String::new(),
             error: None,
             focus,
             message: None,
@@ -225,11 +227,20 @@ impl Home {
             working.patch = None;
             working.patch_task = None;
         }
-        let needs_patch = working.selected.is_some() && working.patch.is_none();
-        if needs_patch {
+        if working.selected.is_some() {
             self.load_working_patch(cx);
         }
         cx.notify();
+    }
+
+    pub fn poll_working(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph() else {
+            return;
+        };
+        let busy = graph.working.status_task.is_some() || graph.working.action_task.is_some();
+        if !busy {
+            self.refresh_working(cx);
+        }
     }
 
     pub fn select_working(&mut self, side: Side, path: String, cx: &mut Context<Self>) {
@@ -237,6 +248,7 @@ impl Home {
             return;
         };
         graph.working.selected = Some((side, path));
+        graph.working.patch = None;
         self.load_working_patch(cx);
     }
 
@@ -254,9 +266,10 @@ impl Home {
         let task = cx.background_executor().spawn(async move {
             let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
             let patch = worktree_file_patch(&location, kind, &paths).map_err(|error| error.to_string())?;
-            DiffFile::parse(&patch).map_err(|error| error.to_string())
+            let files = DiffFile::parse(&patch).map_err(|error| error.to_string())?;
+            Ok((patch, files))
         });
-        working.patch = Some(Load::Loading);
+        working.patch.get_or_insert(Load::Loading);
         working.patch_task = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| this.finish_working_patch(result, cx)).ok();
@@ -264,16 +277,23 @@ impl Home {
         cx.notify();
     }
 
-    fn finish_working_patch(&mut self, result: Result<Vec<DiffFile>, String>, cx: &mut Context<Self>) {
-        let patch = match result {
-            Ok(files) => Load::Ready(cx.new(|cx| DiffState::new(files, cx))),
-            Err(message) => Load::Failed(message),
-        };
+    fn finish_working_patch(&mut self, result: Result<(String, Vec<DiffFile>), String>, cx: &mut Context<Self>) {
         let Some(graph) = self.graph_mut() else {
             return;
         };
-        graph.working.patch_task = None;
-        graph.working.patch = Some(patch);
+        let working = &mut graph.working;
+        working.patch_task = None;
+        let showing = matches!(working.patch, Some(Load::Ready(_)));
+        match result {
+            Ok((text, files)) => {
+                if !showing || working.patch_text != text {
+                    working.patch = Some(Load::Ready(cx.new(|cx| DiffState::new(files, cx))));
+                    working.patch_text = text;
+                }
+            }
+            Err(message) if !showing => working.patch = Some(Load::Failed(message)),
+            Err(_) => {}
+        }
         cx.notify();
     }
 

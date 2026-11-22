@@ -15,7 +15,7 @@ fn main() {
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
         cx.open_window(WindowOptions::default(), |window, cx| {
-            let home = cx.new(|_| Home::new());
+            let home = cx.new(|cx| Home::new(window, cx));
             if let Some(path) = initial_path {
                 home.update(cx, |home, cx| home.open(path, cx));
             }

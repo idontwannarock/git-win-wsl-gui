@@ -9,7 +9,7 @@ use gitcore::repo::open_repository;
 use gitcore::runner::Runner;
 use gpui::{
     AnyElement, AppContext, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement, PathPromptOptions,
-    Render, ScrollStrategy, StatefulInteractiveElement, Styled, Window,
+    Render, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription, Task, Window,
     UniformListScrollHandle, div, prelude::FluentBuilder, px, rgb, uniform_list,
 };
 use crate::working::{Mode, changes_view};
@@ -19,8 +19,9 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::diff::{DiffFile, DiffState};
 use gpui_component::label::Label;
 use std::ops::Range;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const BATCH_SIZE: usize = 500;
 const PREFETCH_ROWS: usize = 100;
 const SHORT_ID_LENGTH: usize = 7;
@@ -40,14 +41,36 @@ pub struct Home {
     screen: Screen,
     scroll: UniformListScrollHandle,
     bench: Option<ScrollBench>,
+    _activation: Subscription,
+    _poll: Task<()>,
 }
 
 impl Home {
-    pub fn new() -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.refresh_working(cx);
+            }
+        });
+        let poll = cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor().timer(POLL_INTERVAL).await;
+                let alive = this.update_in(cx, |this, window, cx| {
+                    if window.is_window_active() {
+                        this.poll_working(cx);
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        });
         Self {
             screen: Screen::Empty,
             scroll: UniformListScrollHandle::new(),
             bench: ScrollBench::from_env(),
+            _activation: activation,
+            _poll: poll,
         }
     }
 
