@@ -1,5 +1,6 @@
 use crate::bench::ScrollBench;
 use crate::branches::branches_view;
+use crate::motion::follow_system;
 use crate::keyboard::{FocusNext, FocusPrevious, Step, list_region, stepped};
 use crate::theme::{MONO, chip_colors};
 use crate::detail::{Detail, Load, detail_view, file_rows};
@@ -53,6 +54,7 @@ impl Home {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let activation = cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
+                follow_system(cx);
                 this.refresh_working(cx);
             }
         });

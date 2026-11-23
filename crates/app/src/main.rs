@@ -4,6 +4,7 @@ mod detail;
 mod graph;
 mod home;
 mod keyboard;
+mod motion;
 mod theme;
 mod working;
 #[cfg(test)]
@@ -18,6 +19,7 @@ fn main() {
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
         keyboard::bind(cx);
+        motion::follow_system(cx);
         theme::load_fonts(cx);
         theme::apply(cx);
         cx.open_window(WindowOptions::default(), |window, cx| {
