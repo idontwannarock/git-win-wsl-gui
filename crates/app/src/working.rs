@@ -1,5 +1,6 @@
 use crate::detail::{Load, file_row, name_and_folder};
 use crate::home::Home;
+use crate::keyboard::{ListNav, Step, list_region, stepped};
 use gitcore::diff::worktree_file_patch;
 use gitcore::exec::CommandError;
 use gitcore::index::{commit, stage, stage_all, unstage};
@@ -8,9 +9,9 @@ use gitcore::status::{
     ChangeKind, FileState, Groups, Status, StatusError, WorkingFile, read_status,
 };
 use gpui::{
-    AnyElement, AppContext, Context, Entity, FocusHandle, Hsla, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, StatefulInteractiveElement, Styled, Subscription, Task, Window,
-    div, px, uniform_list,
+    AnyElement, App, AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement,
+    KeyDownEvent, ParentElement, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription,
+    Task, Window, div, px, uniform_list,
 };
 use gpui_component::ActiveTheme;
 use gpui_component::Disableable;
@@ -41,7 +42,8 @@ pub struct Working {
     pub patch: Option<Load<Entity<DiffState>>>,
     patch_text: String,
     pub error: Option<String>,
-    pub focus: FocusHandle,
+    staged_nav: ListNav,
+    unstaged_nav: ListNav,
     pub message: Option<Entity<TextareaState>>,
     pub commit_error: Option<String>,
     message_subscription: Option<Subscription>,
@@ -51,14 +53,15 @@ pub struct Working {
 }
 
 impl Working {
-    pub fn new(focus: FocusHandle) -> Self {
+    pub fn new(cx: &App) -> Self {
         Self {
             groups: None,
             selected: None,
             patch: None,
             patch_text: String::new(),
             error: None,
-            focus,
+            staged_nav: ListNav::new(cx),
+            unstaged_nav: ListNav::new(cx),
             message: None,
             commit_error: None,
             message_subscription: None,
@@ -81,6 +84,21 @@ impl Working {
     fn can_commit(&self, message: &str) -> bool {
         let has_staged = self.groups.as_ref().is_some_and(|groups| !groups.staged.is_empty());
         has_staged && !message.trim().is_empty() && !self.busy()
+    }
+
+    fn nav(&self, side: Side) -> &ListNav {
+        match side {
+            Side::Staged => &self.staged_nav,
+            Side::Unstaged => &self.unstaged_nav,
+        }
+    }
+
+    fn selected_index(&self, side: Side) -> Option<usize> {
+        let (selected_side, path) = self.selected.as_ref()?;
+        if *selected_side != side {
+            return None;
+        }
+        self.list(side).iter().position(|file| &file.path == path)
     }
 
     fn list(&self, side: Side) -> &[WorkingFile] {
@@ -134,7 +152,7 @@ impl Home {
             return;
         };
         graph.mode = Mode::Changes;
-        graph.working.focus.focus(window, cx);
+        graph.working.unstaged_nav.focus.focus(window, cx);
         if graph.working.message.is_none() {
             let state = cx.new(|cx| {
                 TextareaState::new(window, cx)
@@ -301,7 +319,21 @@ impl Home {
         cx.notify();
     }
 
-    pub fn toggle_selected(&mut self, cx: &mut Context<Self>) {
+    pub fn step_working(&mut self, side: Side, step: Step, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph() else {
+            return;
+        };
+        let working = &graph.working;
+        let list = working.list(side);
+        let Some(index) = stepped(list.len(), working.selected_index(side), step) else {
+            return;
+        };
+        let path = list[index].path.clone();
+        working.nav(side).scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        self.select_working(side, path, cx);
+    }
+
+    pub fn toggle_selected(&mut self, focused: Side, cx: &mut Context<Self>) {
         let Some(graph) = self.graph_mut() else {
             return;
         };
@@ -309,6 +341,9 @@ impl Home {
         let Some((side, _)) = working.selected.clone() else {
             return;
         };
+        if side != focused {
+            return;
+        }
         let Some(file) = working.selected_file() else {
             return;
         };
@@ -390,10 +425,8 @@ impl Home {
                 let (name, folder) = name_and_folder(&file.path, file.renamed_from.as_deref());
                 let selected = (selected_path == Some(file.path.as_str())).then_some(selected_background);
                 let path = file.path.clone();
-                let focus = working.focus.clone();
                 file_row((id, index), badge(file.state, cx), name, folder, selected, muted)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        focus.focus(window, cx);
+                    .on_click(cx.listener(move |this, _, _, cx| {
                         this.select_working(side, path.clone(), cx);
                     }))
                     .into_any_element()
@@ -412,21 +445,33 @@ fn group_header(title: String, action: Option<Button>) -> impl IntoElement {
         .children(action)
 }
 
-fn group_list(side: Side, count: usize, cx: &mut Context<Home>) -> AnyElement {
+fn group_list(side: Side, count: usize, nav: &ListNav, cx: &mut Context<Home>) -> AnyElement {
     if count == 0 {
         return Label::new("No files").into_any_element();
     }
-    let id = match side {
-        Side::Staged => "staged-list",
-        Side::Unstaged => "unstaged-list",
+    let (region, id) = match side {
+        Side::Staged => ("staged-region", "staged-list"),
+        Side::Unstaged => ("unstaged-region", "unstaged-list"),
     };
-    uniform_list(
-        id,
-        count,
-        cx.processor(move |this, range, _, cx| this.working_rows(side, range, cx)),
-    )
-    .size_full()
-    .into_any_element()
+    list_region(region, &nav.focus, cx.theme().ring)
+        .size_full()
+        .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+            if let Some(step) = Step::from_key(&event.keystroke.key) {
+                this.step_working(side, step, cx);
+            } else if event.keystroke.key == "space" {
+                this.toggle_selected(side, cx);
+            }
+        }))
+        .child(
+            uniform_list(
+                id,
+                count,
+                cx.processor(move |this, range, _, cx| this.working_rows(side, range, cx)),
+            )
+            .track_scroll(&nav.scroll)
+            .size_full(),
+        )
+        .into_any_element()
 }
 
 pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
@@ -483,7 +528,7 @@ pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
             div()
                 .flex_1()
                 .min_h_0()
-                .child(group_list(Side::Staged, groups.staged.len(), cx)),
+                .child(group_list(Side::Staged, groups.staged.len(), working.nav(Side::Staged), cx)),
         )
         .child(group_header(
             format!("Unstaged ({})", groups.unstaged.len()),
@@ -493,17 +538,10 @@ pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
             div()
                 .flex_1()
                 .min_h_0()
-                .child(group_list(Side::Unstaged, groups.unstaged.len(), cx)),
+                .child(group_list(Side::Unstaged, groups.unstaged.len(), working.nav(Side::Unstaged), cx)),
         )
         .child(commit_box);
     div()
-        .id("changes")
-        .track_focus(&working.focus)
-        .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-            if event.keystroke.key == "space" {
-                this.toggle_selected(cx);
-            }
-        }))
         .flex()
         .flex_col()
         .flex_1()

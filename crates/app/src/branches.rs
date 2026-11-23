@@ -1,11 +1,13 @@
 use crate::graph::GraphState;
 use crate::home::Home;
+use crate::keyboard::{Step, list_region, stepped};
 use gitcore::branch::{checkout_local, checkout_remote};
 use gitcore::log::Oid;
 use gitcore::refs::{RefKind, RefLabel};
 use gpui::{
-    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px, uniform_list,
+    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
+    ScrollStrategy, StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
+    uniform_list,
 };
 use gpui_component::ActiveTheme;
 use gpui_component::Disableable;
@@ -38,6 +40,10 @@ impl BranchPanel {
         }
     }
 
+    fn stepped_selection(&self, step: Step) -> Option<(usize, RefKind, String)> {
+        stepped_branch(&self.entries, self.selected.as_ref(), step)
+    }
+
     pub fn show_refs(&mut self, refs: &HashMap<Oid, Vec<RefLabel>>) {
         self.entries = entries(refs);
     }
@@ -53,6 +59,28 @@ impl BranchPanel {
     fn can_check_out(&self) -> bool {
         self.selected_branch().is_some_and(|label| !label.is_head)
     }
+}
+
+fn stepped_branch(
+    entries: &[Entry],
+    selected: Option<&(RefKind, String)>,
+    step: Step,
+) -> Option<(usize, RefKind, String)> {
+    let branches: Vec<(usize, &RefLabel)> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| match entry {
+            Entry::Branch(label) => Some((index, label)),
+            Entry::Header(_) => None,
+        })
+        .collect();
+    let current = selected.and_then(|(kind, name)| {
+        branches
+            .iter()
+            .position(|(_, label)| label.kind == *kind && label.name == *name)
+    });
+    let (entry, label) = branches[stepped(branches.len(), current, step)?];
+    Some((entry, label.kind, label.name.clone()))
 }
 
 fn entries(refs: &HashMap<Oid, Vec<RefLabel>>) -> Vec<Entry> {
@@ -83,6 +111,17 @@ impl Home {
             graph.branches.selected = Some((kind, name));
             cx.notify();
         }
+    }
+
+    fn step_branch(&mut self, step: Step, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let Some((entry, kind, name)) = graph.branches.stepped_selection(step) else {
+            return;
+        };
+        graph.branches_nav.scroll.scroll_to_item(entry, ScrollStrategy::Nearest);
+        self.select_branch(kind, name, cx);
     }
 
     pub fn checkout_selected(&mut self, cx: &mut Context<Self>) {
@@ -203,14 +242,25 @@ pub fn branches_view(graph: &GraphState, cx: &mut Context<Home>) -> AnyElement {
         .gap_1()
         .child(Label::new("Branches"))
         .child(
-            div().flex_1().min_h_0().child(
-                uniform_list(
-                    "branches",
-                    panel.entries.len(),
-                    cx.processor(|this, range, _, cx| this.branch_rows(range, cx)),
-                )
-                .size_full(),
-            ),
+            list_region("branches-region", &graph.branches_nav.focus, cx.theme().ring)
+                .flex_1()
+                .min_h_0()
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                    if let Some(step) = Step::from_key(&event.keystroke.key) {
+                        this.step_branch(step, cx);
+                    } else if event.keystroke.key == "enter" {
+                        this.checkout_selected(cx);
+                    }
+                }))
+                .child(
+                    uniform_list(
+                        "branches",
+                        panel.entries.len(),
+                        cx.processor(|this, range, _, cx| this.branch_rows(range, cx)),
+                    )
+                    .track_scroll(&graph.branches_nav.scroll)
+                    .size_full(),
+                ),
         )
         .children(panel.error.clone().map(|error| {
             div()
@@ -269,6 +319,34 @@ mod tests {
             describe(&entries(&refs)),
             ["# Local", "main", "topic", "# Remote", "origin/main"]
         );
+    }
+
+    #[test]
+    fn arrow_steps_skip_headers_and_report_the_entry_index_to_scroll_to() {
+        let refs = by_commit(vec![
+            label("main", RefKind::Branch, true),
+            label("topic", RefKind::Branch, false),
+            label("origin/main", RefKind::RemoteBranch, false),
+        ]);
+        let entries = entries(&refs);
+        let step = |selected: Option<(RefKind, &str)>, step| {
+            let selected = selected.map(|(kind, name)| (kind, name.to_owned()));
+            stepped_branch(&entries, selected.as_ref(), step).map(|(index, _, name)| (index, name))
+        };
+        assert_eq!(step(None, Step::Next), Some((1, "main".to_owned())));
+        assert_eq!(
+            step(Some((RefKind::Branch, "topic")), Step::Next),
+            Some((4, "origin/main".to_owned()))
+        );
+        assert_eq!(
+            step(Some((RefKind::RemoteBranch, "origin/main")), Step::Previous),
+            Some((2, "topic".to_owned()))
+        );
+        assert_eq!(
+            step(Some((RefKind::RemoteBranch, "origin/main")), Step::Next),
+            Some((4, "origin/main".to_owned()))
+        );
+        assert_eq!(stepped_branch(&[], None, Step::Next), None);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use crate::branches::BranchPanel;
 use crate::detail::Detail;
+use crate::keyboard::ListNav;
 use crate::theme::lane_color;
 use crate::working::{Mode, Working};
 use gitcore::lanes::{GraphRow, LaneLayout};
@@ -9,7 +10,7 @@ use gitcore::repo::OpenedRepo;
 use gitcore::runner::RepoLocation;
 use gitcore::stream::{LogStream, StreamError};
 use gpui::{
-    Bounds, FocusHandle, IntoElement, PathBuilder, Pixels, Point, Styled, Task, Window, canvas, fill,
+    App, Bounds, FocusHandle, IntoElement, PathBuilder, Pixels, Point, Styled, Task, Window, canvas, fill,
     point, px,
 };
 use std::collections::HashMap;
@@ -31,9 +32,12 @@ pub struct GraphState {
     pub rows: Vec<CommitRow>,
     pub refs: HashMap<Oid, Vec<RefLabel>>,
     pub detail: Option<Detail>,
+    pub history_focus: FocusHandle,
+    pub files_nav: ListNav,
     pub mode: Mode,
     pub working: Working,
     pub branches: BranchPanel,
+    pub branches_nav: ListNav,
     pub error: Option<String>,
     pub reading: Option<Task<()>>,
     pub stream: Option<LogStream>,
@@ -53,15 +57,18 @@ impl GraphState {
         self.error = None;
     }
 
-    pub fn new(opened: OpenedRepo, source: String, focus: FocusHandle) -> Self {
+    pub fn new(opened: OpenedRepo, source: String, cx: &App) -> Self {
         Self {
             source,
             location: opened.location,
             branches: BranchPanel::new(&opened.refs),
+            branches_nav: ListNav::new(cx),
             refs: opened.refs,
             detail: None,
+            history_focus: cx.focus_handle().tab_stop(true),
+            files_nav: ListNav::new(cx),
             mode: Mode::History,
-            working: Working::new(focus),
+            working: Working::new(cx),
             rows: Vec::new(),
             error: None,
             reading: None,

@@ -77,7 +77,7 @@
 
 - [x] 6.1 (tdd) `app::theme`: Console tokens, mapped to the `gpui-component` theme. A test checks every text/background pair against the 4.5:1 and 3:1 floors.
 - [x] 6.2 Bundle Host Grotesk and Atkinson Hyperlegible Mono. Keep their OFL license files in the repository.
-- [ ] 6.3 Visible focus ring and Tab order on every view. Check every v1 action by keyboard only.
+- [x] 6.3 Visible focus ring and Tab order on every view. Check every v1 action by keyboard only.
 - [ ] 6.4 Turn off all animation when Windows "show animations" is off.
 - [ ] 6.5 Design review against the "no ornament" list in the `ui-theme` spec.
 

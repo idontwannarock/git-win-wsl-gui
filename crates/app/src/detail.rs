@@ -1,10 +1,11 @@
 use crate::home::{Home, format_time};
+use crate::keyboard::{ListNav, Step, list_region};
 use crate::theme::MONO;
 use gitcore::changes::FileChange;
 use gitcore::log::Commit;
 use gpui::{
     AnyElement, Context, Div, ElementId, Entity, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Stateful, StatefulInteractiveElement, Styled, Task, div,
+    KeyDownEvent, ParentElement, Stateful, StatefulInteractiveElement, Styled, Task, div,
     prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::ActiveTheme;
@@ -122,7 +123,7 @@ pub fn file_rows(detail: &Detail, range: Range<usize>, cx: &mut Context<Home>) -
         .collect()
 }
 
-pub fn detail_view(detail: &Detail, cx: &mut Context<Home>) -> AnyElement {
+pub fn detail_view(detail: &Detail, nav: &ListNav, cx: &mut Context<Home>) -> AnyElement {
     let commit = &detail.commit;
     let header = div()
         .flex()
@@ -151,13 +152,23 @@ pub fn detail_view(detail: &Detail, cx: &mut Context<Home>) -> AnyElement {
         Load::Loading => Label::new("Loading files...").into_any_element(),
         Load::Failed(message) => Label::new(message.clone()).into_any_element(),
         Load::Ready(list) if list.is_empty() => Label::new("No file changes").into_any_element(),
-        Load::Ready(list) => uniform_list(
-            "files",
-            list.len(),
-            cx.processor(|this, range, _, cx| this.file_rows(range, cx)),
-        )
-        .size_full()
-        .into_any_element(),
+        Load::Ready(list) => list_region("files-region", &nav.focus, cx.theme().ring)
+            .size_full()
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if let Some(step) = Step::from_key(&event.keystroke.key) {
+                    this.step_file(step, cx);
+                }
+            }))
+            .child(
+                uniform_list(
+                    "files",
+                    list.len(),
+                    cx.processor(|this, range, _, cx| this.file_rows(range, cx)),
+                )
+                .track_scroll(&nav.scroll)
+                .size_full(),
+            )
+            .into_any_element(),
     };
 
     let patch = match &detail.patch {

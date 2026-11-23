@@ -1,5 +1,6 @@
 use crate::bench::ScrollBench;
 use crate::branches::branches_view;
+use crate::keyboard::{FocusNext, FocusPrevious, Step, list_region, stepped};
 use crate::theme::{MONO, chip_colors};
 use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
@@ -10,8 +11,8 @@ use gitcore::refs::RefLabel;
 use gitcore::repo::open_repository;
 use gitcore::runner::Runner;
 use gpui::{
-    AnyElement, AppContext, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement, PathPromptOptions,
-    Render, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription, Task, Window,
+    AnyElement, AppContext, Context, Div, FocusHandle, Hsla, InteractiveElement, IntoElement, KeyDownEvent,
+    ParentElement, PathPromptOptions, Render, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription, Task, Window,
     UniformListScrollHandle, div, prelude::FluentBuilder, px, uniform_list,
 };
 use crate::working::{Mode, changes_view};
@@ -29,7 +30,7 @@ const PREFETCH_ROWS: usize = 100;
 const SHORT_ID_LENGTH: usize = 7;
 const AUTHOR_WIDTH: f32 = 140.0;
 const DATE_WIDTH: f32 = 150.0;
-const ID_WIDTH: f32 = 70.0;
+const ID_WIDTH: f32 = 76.0;
 const LABEL_MAX_WIDTH: f32 = 180.0;
 
 enum Screen {
@@ -40,6 +41,7 @@ enum Screen {
 }
 
 pub struct Home {
+    focus: FocusHandle,
     screen: Screen,
     scroll: UniformListScrollHandle,
     bench: Option<ScrollBench>,
@@ -67,7 +69,10 @@ impl Home {
                 }
             }
         });
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
         Self {
+            focus,
             screen: Screen::Empty,
             scroll: UniformListScrollHandle::new(),
             bench: ScrollBench::from_env(),
@@ -105,8 +110,7 @@ impl Home {
             this.update(cx, |this, cx| {
                 this.screen = match result {
                     Ok(opened) => {
-                        let focus = cx.focus_handle();
-                        Screen::Loaded(Box::new(GraphState::new(opened, source, focus)))
+                        Screen::Loaded(Box::new(GraphState::new(opened, source, cx)))
                     }
                     Err(error) => Screen::Failed(error.to_string()),
                 };
@@ -247,6 +251,35 @@ impl Home {
         cx.notify();
     }
 
+    fn step_commit(&mut self, step: Step, cx: &mut Context<Self>) {
+        let Screen::Loaded(graph) = &self.screen else {
+            return;
+        };
+        let current = graph.detail.as_ref().map(|detail| detail.row);
+        let Some(index) = stepped(graph.rows.len(), current, step) else {
+            return;
+        };
+        self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        self.select_commit(index, cx);
+    }
+
+    pub fn step_file(&mut self, step: Step, cx: &mut Context<Self>) {
+        let Screen::Loaded(graph) = &self.screen else {
+            return;
+        };
+        let Some(detail) = &graph.detail else {
+            return;
+        };
+        let Load::Ready(files) = &detail.files else {
+            return;
+        };
+        let Some(index) = stepped(files.len(), detail.selected_file, step) else {
+            return;
+        };
+        graph.files_nav.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        self.select_file(index, cx);
+    }
+
     fn finish_changes(&mut self, result: Result<Vec<FileChange>, ChangesError>, cx: &mut Context<Self>) {
         let Screen::Loaded(graph) = &mut self.screen else {
             return;
@@ -355,16 +388,30 @@ impl Home {
                 .gap_1()
                 .child(Label::new(status))
                 .child(
-                    uniform_list(
-                        "graph",
-                        graph.rows.len(),
-                        cx.processor(|this, range, _, cx| this.rows_in(range, cx)),
-                    )
-                    .flex_1()
-                    .min_h_0()
-                    .track_scroll(&self.scroll),
+                    list_region("history-region", &graph.history_focus, cx.theme().ring)
+                        .flex_1()
+                        .min_h_0()
+                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                            if let Some(step) = Step::from_key(&event.keystroke.key) {
+                                this.step_commit(step, cx);
+                            }
+                        }))
+                        .child(
+                            uniform_list(
+                                "graph",
+                                graph.rows.len(),
+                                cx.processor(|this, range, _, cx| this.rows_in(range, cx)),
+                            )
+                            .size_full()
+                            .track_scroll(&self.scroll),
+                        ),
                 )
-                .children(graph.detail.as_ref().map(|detail| detail_view(detail, cx)))
+                .children(
+                    graph
+                        .detail
+                        .as_ref()
+                        .map(|detail| detail_view(detail, &graph.files_nav, cx)),
+                )
                 .into_any_element()
         } else {
             changes_view(&graph.working, cx)
@@ -417,6 +464,9 @@ impl Render for Home {
         };
         div()
             .size_full()
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|_, _: &FocusNext, window, cx| window.focus_next(cx)))
+            .on_action(cx.listener(|_, _: &FocusPrevious, window, cx| window.focus_prev(cx)))
             .flex()
             .flex_col()
             .gap_2()

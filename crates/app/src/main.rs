@@ -3,6 +3,7 @@ mod branches;
 mod detail;
 mod graph;
 mod home;
+mod keyboard;
 mod theme;
 mod working;
 #[cfg(test)]
@@ -16,6 +17,7 @@ fn main() {
     let initial_path = std::env::args().nth(1);
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
+        keyboard::bind(cx);
         theme::load_fonts(cx);
         theme::apply(cx);
         cx.open_window(WindowOptions::default(), |window, cx| {
