@@ -1,6 +1,6 @@
 use crate::bench::ScrollBench;
 use crate::branches::branches_view;
-use crate::theme::chip_colors;
+use crate::theme::{MONO, chip_colors};
 use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
@@ -461,7 +461,7 @@ fn commit_row(row: &CommitRow, labels: &[RefLabel], background: Option<Hsla>) ->
         )
         .child(fixed_column(AUTHOR_WIDTH, commit.author.clone()))
         .child(fixed_column(DATE_WIDTH, format_time(commit.time)))
-        .child(fixed_column(ID_WIDTH, short_id))
+        .child(fixed_column(ID_WIDTH, short_id).font_family(MONO))
 }
 
 fn label_chip(label: &RefLabel) -> impl IntoElement {
@@ -480,7 +480,7 @@ fn label_chip(label: &RefLabel) -> impl IntoElement {
         .child(label.name.clone())
 }
 
-fn fixed_column(width: f32, text: String) -> impl IntoElement {
+fn fixed_column(width: f32, text: String) -> Div {
     div()
         .w(px(width))
         .flex_none()

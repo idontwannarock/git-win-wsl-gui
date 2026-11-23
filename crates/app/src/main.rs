@@ -16,6 +16,7 @@ fn main() {
     let initial_path = std::env::args().nth(1);
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
+        theme::load_fonts(cx);
         theme::apply(cx);
         cx.open_window(WindowOptions::default(), |window, cx| {
             let home = cx.new(|cx| Home::new(window, cx));

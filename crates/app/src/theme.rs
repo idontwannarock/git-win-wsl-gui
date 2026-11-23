@@ -1,6 +1,7 @@
 use gitcore::refs::RefKind;
 use gpui::{App, Hsla, Rgba, px};
 use gpui_component::{Theme, ThemeMode};
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 #[derive(Clone, Copy)]
@@ -88,9 +89,23 @@ pub fn chip_colors(kind: RefKind, is_head: bool) -> (Hsla, Hsla) {
     (background.hsla(), text.hsla())
 }
 
+pub const SANS: &str = "Host Grotesk";
+pub const MONO: &str = "Atkinson Hyperlegible Mono";
+
+pub fn load_fonts(cx: &mut App) {
+    cx.text_system()
+        .add_fonts(vec![
+            Cow::Borrowed(include_bytes!("../assets/fonts/HostGrotesk.ttf").as_slice()),
+            Cow::Borrowed(include_bytes!("../assets/fonts/AtkinsonHyperlegibleMono.ttf").as_slice()),
+        ])
+        .expect("bundled fonts load");
+}
+
 pub fn apply(cx: &mut App) {
     Theme::change(ThemeMode::Dark, None, cx);
     Theme::update(cx, |theme| {
+        theme.font_family = SANS.into();
+        theme.mono_font_family = MONO.into();
         let colors = &mut theme.colors;
         colors.background = PAPER.hsla();
         colors.foreground = INK.hsla();

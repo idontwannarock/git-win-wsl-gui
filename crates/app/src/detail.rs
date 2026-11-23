@@ -1,4 +1,5 @@
 use crate::home::{Home, format_time};
+use crate::theme::MONO;
 use gitcore::changes::FileChange;
 use gitcore::log::Commit;
 use gpui::{
@@ -129,12 +130,13 @@ pub fn detail_view(detail: &Detail, cx: &mut Context<Home>) -> AnyElement {
         .flex_none()
         .gap_1()
         .child(Label::new(commit.subject.clone()))
-        .child(Label::new(format!(
-            "{}  {}  {}",
-            commit.id.as_str(),
-            commit.author,
-            format_time(commit.time)
-        )))
+        .child(
+            div()
+                .flex()
+                .gap_2()
+                .child(div().font_family(MONO).child(commit.id.as_str().to_string()))
+                .child(Label::new(format!("{}  {}", commit.author, format_time(commit.time)))),
+        )
         .when(!commit.body.is_empty(), |header| {
             header.child(
                 div()
