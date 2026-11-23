@@ -474,10 +474,12 @@ impl Render for Home {
             .gap_2()
             .p_3()
             .child(
-                Button::new("open")
-                    .primary()
-                    .label("Open repository...")
-                    .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
+                div().flex().flex_none().child(
+                    Button::new("open")
+                        .primary()
+                        .label("Open repository...")
+                        .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
+                ),
             )
             .child(body)
     }

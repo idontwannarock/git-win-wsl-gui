@@ -56,7 +56,7 @@ pub fn list_region(id: impl Into<ElementId>, focus: &FocusHandle, ring: Hsla) ->
     div()
         .id(id)
         .track_focus(focus)
-        .border_1()
+        .border_2()
         .border_color(transparent_black())
         .rounded_md()
         .focus_visible(move |style| style.border_color(ring))

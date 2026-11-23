@@ -79,7 +79,7 @@
 - [x] 6.2 Bundle Host Grotesk and Atkinson Hyperlegible Mono. Keep their OFL license files in the repository.
 - [x] 6.3 Visible focus ring and Tab order on every view. Check every v1 action by keyboard only.
 - [x] 6.4 Turn off all animation when Windows "show animations" is off.
-- [ ] 6.5 Design review against the "no ornament" list in the `ui-theme` spec.
+- [x] 6.5 Design review against the "no ornament" list in the `ui-theme` spec.
 
 ## 7. Final checks (blocked by 1-6)
 
