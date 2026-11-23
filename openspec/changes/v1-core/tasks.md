@@ -85,4 +85,4 @@
 
 - [ ] 7.1 Run `cargo test`, `cargo clippy -- -D warnings`, and `cargo build --release`. Fix all failures.
 - [ ] 7.2 Re-run the benchmarks from 2.5 and 3.4. Confirm every target in the specs. Record any miss as a follow-up.
-- [ ] 7.3 Write `README.md`: what it is, how to build, requirements (git on Windows, git in each WSL distro), and the tip to run `git maintenance start` for faster big repositories.
+- [x] 7.3 Write `README.md`: what it is, how to build, requirements (git on Windows, git in each WSL distro), and the tip to run `git maintenance start` for faster big repositories.
