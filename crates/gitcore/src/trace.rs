@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const MAX_FILE_BYTES: u64 = 1_000_000;
+const MAX_FILE_BYTES: u64 = 10_000_000;
 const MAX_ARG_CHARS: usize = 80;
 const MAX_STDERR_CHARS: usize = 300;
 

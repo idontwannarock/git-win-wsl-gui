@@ -74,7 +74,7 @@ The app writes a log to `%LOCALAPPDATA%\git-win-wsl-gui\app.log`. The log lists:
 - errors from the commit history reader,
 - panics, with a backtrace.
 
-When the file grows past 1 MB, the app renames it to `app.log.old` and starts a new file. The log can hold parts of your commit messages and paths.
+When the file grows past 10 MB, the app renames it to `app.log.old` and starts a new file. The log can hold parts of your commit messages and paths.
 
 ## Fonts and license
 
