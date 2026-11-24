@@ -1,4 +1,4 @@
-use crate::home::{Home, format_time};
+use crate::repo_view::{RepoView, format_time};
 use crate::keyboard::{ListNav, Step, list_region};
 use crate::theme::MONO;
 use gitcore::changes::FileChange;
@@ -47,7 +47,7 @@ impl Detail {
     }
 }
 
-fn status_badge(change: &FileChange, cx: &Context<Home>) -> (&'static str, Hsla) {
+fn status_badge(change: &FileChange, cx: &Context<RepoView>) -> (&'static str, Hsla) {
     let colors = cx.theme();
     match change {
         FileChange::Added { .. } => ("A", colors.success),
@@ -101,7 +101,7 @@ pub fn file_row(
         )
 }
 
-pub fn file_rows(detail: &Detail, range: Range<usize>, cx: &mut Context<Home>) -> Vec<AnyElement> {
+pub fn file_rows(detail: &Detail, range: Range<usize>, cx: &mut Context<RepoView>) -> Vec<AnyElement> {
     let Load::Ready(files) = &detail.files else {
         return Vec::new();
     };
@@ -123,7 +123,7 @@ pub fn file_rows(detail: &Detail, range: Range<usize>, cx: &mut Context<Home>) -
         .collect()
 }
 
-pub fn detail_view(detail: &Detail, nav: &ListNav, cx: &mut Context<Home>) -> AnyElement {
+pub fn detail_view(detail: &Detail, nav: &ListNav, cx: &mut Context<RepoView>) -> AnyElement {
     let commit = &detail.commit;
     let header = div()
         .flex()

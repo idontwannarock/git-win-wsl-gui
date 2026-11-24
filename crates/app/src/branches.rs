@@ -1,5 +1,5 @@
 use crate::graph::GraphState;
-use crate::home::Home;
+use crate::repo_view::RepoView;
 use crate::keyboard::{Step, list_region, stepped};
 use gitcore::branch::{checkout_local, checkout_remote};
 use gitcore::log::Oid;
@@ -105,7 +105,7 @@ fn entries(refs: &HashMap<Oid, Vec<RefLabel>>) -> Vec<Entry> {
     entries
 }
 
-impl Home {
+impl RepoView {
     pub fn select_branch(&mut self, kind: RefKind, name: String, cx: &mut Context<Self>) {
         if let Some(graph) = self.graph_mut() {
             graph.branches.selected = Some((kind, name));
@@ -228,7 +228,7 @@ impl Home {
     }
 }
 
-pub fn branches_view(graph: &GraphState, cx: &mut Context<Home>) -> AnyElement {
+pub fn branches_view(graph: &GraphState, cx: &mut Context<RepoView>) -> AnyElement {
     let panel = &graph.branches;
     let danger = cx.theme().danger;
     let can_check_out = panel.can_check_out() && !graph.working.busy();

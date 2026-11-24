@@ -1,5 +1,5 @@
 use crate::detail::{Load, file_row, name_and_folder};
-use crate::home::Home;
+use crate::repo_view::RepoView;
 use crate::keyboard::{ListNav, Step, list_region, stepped};
 use gitcore::diff::worktree_file_patch;
 use gitcore::exec::CommandError;
@@ -125,7 +125,7 @@ impl Working {
     }
 }
 
-fn badge(state: FileState, cx: &Context<Home>) -> (&'static str, Hsla) {
+fn badge(state: FileState, cx: &Context<RepoView>) -> (&'static str, Hsla) {
     let colors = cx.theme();
     match state {
         FileState::Changed(ChangeKind::Added) => ("A", colors.success),
@@ -139,7 +139,7 @@ fn badge(state: FileState, cx: &Context<Home>) -> (&'static str, Hsla) {
     }
 }
 
-impl Home {
+impl RepoView {
     pub fn show_history(&mut self, cx: &mut Context<Self>) {
         if let Some(graph) = self.graph_mut() {
             graph.mode = Mode::History;
@@ -448,7 +448,7 @@ fn group_header(title: String, action: Option<Button>) -> impl IntoElement {
         .children(action)
 }
 
-fn group_list(side: Side, count: usize, nav: &ListNav, cx: &mut Context<Home>) -> AnyElement {
+fn group_list(side: Side, count: usize, nav: &ListNav, cx: &mut Context<RepoView>) -> AnyElement {
     if count == 0 {
         return Label::new("No files").into_any_element();
     }
@@ -477,7 +477,7 @@ fn group_list(side: Side, count: usize, nav: &ListNav, cx: &mut Context<Home>) -
         .into_any_element()
 }
 
-pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
+pub fn changes_view(working: &Working, cx: &mut Context<RepoView>) -> AnyElement {
     let Some(groups) = &working.groups else {
         let message = working.error.clone().unwrap_or_else(|| "Reading changes...".to_owned());
         return Label::new(message).into_any_element();

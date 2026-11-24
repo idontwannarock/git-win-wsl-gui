@@ -1,7 +1,7 @@
 ## 1. Slice: shell and repository view, one tab, same behavior as today
 
-- [ ] 1.1 (tdd) `app`: a pure `TabList` type with no gpui types. It holds entries and an active index. Tests cover: open adds at the end and activates; activate; close of a middle, last, and only entry; which entry becomes active after each close (right neighbor, else left, else none).
-- [ ] 1.2 Rename `Home` to `RepoView`. Remove its "Open repository..." button, its poll, and its window-activation observer. Add `Shell` with a `TabList` and an `Entity<RepoView>` for each entry. `main.rs` opens `Shell`. The command-line path calls `Shell::open`. With one repository, the app behaves as before. Check by hand on a Windows repository: open, history, select commit, Changes, stage, commit, branch switch, 2-second refresh. Do not change logic in this step.
+- [x] 1.1 (tdd) `app`: a pure `TabList` type with no gpui types. It holds entries and an active index. Tests cover: open adds at the end and activates; activate; close of a middle, last, and only entry; which entry becomes active after each close (right neighbor, else left, else none).
+- [x] 1.2 Rename `Home` to `RepoView`. Remove its "Open repository..." button, its poll, and its window-activation observer. Add `Shell` with a `TabList` and an `Entity<RepoView>` for each entry. `main.rs` opens `Shell`. The command-line path calls `Shell::open`. With one repository, the app behaves as before. Check by hand on a Windows repository: open, history, select commit, Changes, stage, commit, branch switch, 2-second refresh. Do not change logic in this step.
 
 ## 2. Slice: many tabs with the mouse (blocked by 1)
 
