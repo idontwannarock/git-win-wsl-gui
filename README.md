@@ -28,6 +28,10 @@ v1 does not do: hunk or line staging, side-by-side diff, rebase, stash, merge ed
 - Open only repositories you trust. Git runs the hooks and the settings of a repository (for example `core.fsmonitor`). This app runs Git, so it does the same.
 - To build: Rust (edition 2024, a current stable toolchain).
 
+## Install
+
+Download `git-win-wsl-gui-<version>-windows-x64.zip` from the [Releases](../../releases) page. Unzip it and run `git-win-wsl-gui.exe`. The file is not code-signed, so Windows SmartScreen can show a warning. The `.sha256` file next to the zip holds its checksum.
+
 ## Build and run
 
 ```
@@ -86,11 +90,12 @@ The app embeds two fonts under the SIL Open Font License 1.1. The files and lice
 - Host Grotesk (UI text)
 - Atkinson Hyperlegible Mono (hashes and code)
 
-The project declares the Apache-2.0 license in `Cargo.toml`. The repository has no `LICENSE` file yet.
+The project uses the Apache-2.0 license. See `LICENSE`.
 
 ## Project layout
 
 - `crates/gitcore`: Git engine with no UI. It runs `git` and parses its output.
 - `crates/app`: the gpui app.
-- `openspec/`: specs, design, and tasks.
+- `openspec/`: specs, design, and tasks. `openspec/follow-ups.md` lists open work.
+- `.github/workflows/`: `ci.yml` checks every push; `release.yml` builds and publishes a release when you push a tag such as `v0.1.0`.
 - `docs/architecture/`: architecture notes.
