@@ -34,6 +34,10 @@ The system SHALL open a repository in a new tab and activate that tab. When the 
 - **WHEN** the user starts the app with a repository path while tabs are restored
 - **THEN** the system opens or activates the tab for that path and makes it active
 
+#### Scenario: Open again after a failed open
+- **WHEN** a tab shows an error for `C:\code\new` and the user opens `C:\code\new` again
+- **THEN** the system activates that tab and reads the repository again in it
+
 ### Requirement: Tab title
 The system SHALL title each tab with the last folder name of the repository path. When two tabs would have the same title, the system SHALL add the parent folder name to both titles. The system SHALL show the full path when the pointer rests on a tab.
 
@@ -60,6 +64,10 @@ The system SHALL close a tab when the user presses its `×` button or presses th
 - **WHEN** one tab is open and the user closes it
 - **THEN** the system shows the empty screen
 
+#### Scenario: Close a background tab
+- **WHEN** tabs A and B are open, B is active, and the user closes A
+- **THEN** B stays active and keeps the keyboard focus
+
 #### Scenario: Running read stops
 - **WHEN** the user closes a tab while it still reads history
 - **THEN** its `git log` process ends and no later result reaches another tab
@@ -83,7 +91,7 @@ The system SHALL deliver the result of every background task to the tab that sta
 - **THEN** the other tab does not change and the large repository shows its history in its own tab
 
 ### Requirement: Only the active tab runs git in the background
-The system SHALL run the periodic status refresh for the active tab only. The system SHALL run one status refresh when a tab becomes active. A background tab SHALL NOT start a git process on its own.
+The system SHALL run the periodic status refresh for the active tab only. The system SHALL run one status refresh when a tab becomes active. A background tab SHALL NOT poll and SHALL NOT start a read on its own. A background tab MAY finish the read of an open that the user started.
 
 #### Scenario: Background tab is quiet
 - **WHEN** tab A is active and tab B is in the background for 10 seconds
@@ -99,6 +107,10 @@ The system SHALL save the list of open repositories and the active tab in `%LOCA
 #### Scenario: Restart
 - **WHEN** three tabs are open, the second is active, and the user restarts the app
 - **THEN** three tabs appear, the second is active, and only the second has read its repository
+
+#### Scenario: Saved path is the top-level directory
+- **WHEN** the user opens `C:\code\repo\src`, restarts the app, and then opens `C:\code\repo`
+- **THEN** the system activates the restored tab and opens no second tab
 
 #### Scenario: Folder removed
 - **WHEN** a saved path no longer exists

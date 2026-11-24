@@ -90,6 +90,13 @@ impl Shell {
 
     pub fn open(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(existing) = key_of(&path).and_then(|key| self.find(&key, None)) {
+            if let Some(tab) = self.tabs.entries().get(existing) {
+                tab.view.update(cx, |view, cx| {
+                    if view.is_failed() {
+                        view.open(path, cx);
+                    }
+                });
+            }
             self.activate(existing, window, cx);
             return;
         }
@@ -103,6 +110,9 @@ impl Shell {
     pub fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (paths, active) = tab_session::load();
         for path in paths {
+            if key_of(&path).is_some_and(|key| self.find(&key, None).is_some()) {
+                continue;
+            }
             let view = cx.new(|cx| RepoView::pending(path.clone(), cx));
             self.add(path, view, window, cx);
         }
@@ -127,15 +137,18 @@ impl Shell {
         let Some(index) = self.tabs.entries().iter().position(|tab| &tab.view == view) else {
             return;
         };
-        if let Some(existing) = self.find(&event.0, Some(view)) {
-            self.tabs.close(index);
-            let existing = if existing > index { existing - 1 } else { existing };
-            self.activate(existing, window, cx);
+        let key = event.0.key();
+        if let Some(existing) = self.find(&key, Some(view)) {
+            if self.tabs.close_in_favor_of(index, existing) {
+                self.show_active(window, cx);
+            }
             return;
         }
         if let Some(tab) = self.tabs.entry_mut(index) {
-            tab.key = Some(event.0.clone());
+            tab.key = Some(key);
+            tab.source = event.0.open_path();
         }
+        self.changed(cx);
     }
 
     fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -145,8 +158,14 @@ impl Shell {
     }
 
     fn close(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tabs.close(index).is_some() {
+        let was_active = self.tabs.active() == Some(index);
+        if self.tabs.close(index).is_none() {
+            return;
+        }
+        if was_active {
             self.show_active(window, cx);
+        } else {
+            self.changed(cx);
         }
     }
 

@@ -9,7 +9,7 @@ use gitcore::changes::{ChangesError, FileChange, commit_changes};
 use gitcore::diff::commit_file_patch;
 use gitcore::refs::RefLabel;
 use gitcore::repo::open_repository;
-use gitcore::runner::{RepoKey, Runner};
+use gitcore::runner::{RepoLocation, Runner};
 use gpui::{
     AnyElement, AppContext, Context, Div, EventEmitter, FocusHandle, Hsla, InteractiveElement, IntoElement, KeyDownEvent,
     ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled, Window,
@@ -39,7 +39,7 @@ enum Screen {
     Failed(String),
 }
 
-pub struct Opened(pub RepoKey);
+pub struct Opened(pub RepoLocation);
 
 impl EventEmitter<Opened> for RepoView {}
 
@@ -62,6 +62,10 @@ impl RepoView {
 
     pub fn pending(path: String, cx: &mut Context<Self>) -> Self {
         Self { screen: Screen::Pending(path), ..Self::new(cx) }
+    }
+
+    pub fn is_failed(&self) -> bool {
+        matches!(self.screen, Screen::Failed(_))
     }
 
     pub fn activate(&mut self, cx: &mut Context<Self>) {
@@ -109,7 +113,7 @@ impl RepoView {
                     Err(error) => Screen::Failed(error.to_string()),
                 };
                 if let Screen::Loaded(graph) = &this.screen {
-                    cx.emit(Opened(graph.location.key()));
+                    cx.emit(Opened(graph.location.clone()));
                 }
                 this.load_more(cx);
                 this.refresh_working(cx);

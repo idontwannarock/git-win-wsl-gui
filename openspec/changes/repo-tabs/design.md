@@ -33,7 +33,7 @@ Alternative: one `Home` with a `Vec<GraphState>` and an `active` index, and a ta
 Closing a tab removes its `Tab` from the list and so drops the `Entity<RepoView>`. The `Task` fields inside it drop and cancel. The log stream already kills its git process when it drops (`stream.rs`). No extra stop code. Check this with a test on `LogStream` drop if it has none (see tasks).
 
 ### D3. The shell owns one poll, and only the active tab uses it
-The 2-second loop moves to `Shell`. Each tick, when the window is active, it calls `poll_working` on the active `RepoView` only. A tab runs `refresh_working` once when the user activates it, and once at window activation, as today. No background tab runs a git command.
+The 2-second loop moves to `Shell`. Each tick, when the window is active, it calls `poll_working` on the active `RepoView` only. A tab runs `refresh_working` once when the user activates it, and once at window activation, as today. No background tab polls. A background tab may finish the read of an open the user started: it reads its first page of commits and one status. That is one bounded read, not a poll.
 Alternative: one poll per `RepoView` that checks an `active` flag. Rejected: it spreads the rule over many places and keeps N timers alive.
 
 ### D4. Same repository means same `RepoKey` <!-- evergreen-candidate -->
@@ -49,7 +49,7 @@ At start, the shell creates one `RepoView` per saved path in a `Pending` screen.
 Alternative: open every saved tab at start. Rejected: ten WSL repositories would start ten `git log` processes at once.
 
 ### D6. Saved tabs are a plain text file
-`%LOCALAPPDATA%\git-win-wsl-gui\tabs.txt`. Line 1 is the active index. Each next line is one repository path, as the user opened it. The file has no serde and no new dependency. A pure module in `app` has `encode(&[String], usize) -> String` and `decode(&str) -> (Vec<String>, usize)`. `decode` is tolerant (boundary-discipline): a missing file, an empty file, a non-number first line, or an index out of range gives an empty list or index 0, and never a crash. The shell saves after each open, close, and activation. A write error goes to the debug log (`trace::record`) and nothing else.
+`%LOCALAPPDATA%\git-win-wsl-gui\tabs.txt`. Line 1 is the active index. Each next line is one repository path. A tab saves the path the user gave until its first read ends. Then the tab saves the top-level path of the repository (`RepoLocation::open_path`; a WSL repository becomes `\\wsl.localhost\<distro>\...`). This way a restored tab and a new open of the repository have the same key. The file has no serde and no new dependency. A pure module in `app` has `encode(&[String], usize) -> String` and `decode(&str) -> (Vec<String>, usize)`. `decode` is tolerant (boundary-discipline): a missing file, an empty file, a non-number first line, or an index out of range gives an empty list or index 0, and never a crash. The shell saves after each open, close, and activation. A write error goes to the debug log (`trace::record`) and nothing else.
 Alternative: JSON with serde. Rejected: a new dependency for a list of strings.
 A path that holds a newline cannot round-trip. Windows paths cannot hold one. A Linux path can, and we accept the loss.
 
@@ -58,7 +58,7 @@ A pure function `titles(paths: &[String]) -> Vec<String>`. The title is the last
 The function lives in `app` (it only formats) and has unit tests.
 
 ### D8. Tab bar widget
-Use the `gpui-component` `TabBar` and `Tab` (`tab::{Tab, TabBar}`). `Tab::suffix` carries the `×` button. `TabBar::suffix` carries the `+` button. `TabBar::track_scroll` lets the bar scroll when tabs overflow. The middle click handler is a `MouseButton::Middle` mouse-up listener on each tab. `Tab` implements `InteractiveElement`, so the listener sits on the tab itself (it compiles). The bar needs no wrapper. A person must confirm by hand that the middle click arrives.
+Use the `gpui-component` `TabBar` and `Tab` (`tab::{Tab, TabBar}`). `Tab::suffix` carries the `×` button. `TabBar::suffix` carries the `+` button. The bar scrolls when tabs overflow through the default scroll handle of `TabBar`. The middle click handler is a `MouseButton::Middle` mouse-up listener on each tab. `Tab` implements `InteractiveElement`, so the listener sits on the tab itself (it compiles). The bar needs no wrapper. A person must confirm by hand that the middle click arrives.
 Alternative: build the bar from `div`s. Rejected until the widget proves it cannot do this: less code, same theme.
 
 ### D9. Window-level pieces stay in the shell

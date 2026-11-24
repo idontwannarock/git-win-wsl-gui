@@ -35,6 +35,15 @@ impl<T> TabList<T> {
         exists
     }
 
+    pub fn close_in_favor_of(&mut self, closed: usize, kept: usize) -> bool {
+        let valid = closed != kept && closed < self.entries.len() && kept < self.entries.len();
+        if valid {
+            self.entries.remove(closed);
+            self.active = Some(if kept > closed { kept - 1 } else { kept });
+        }
+        valid
+    }
+
     pub fn close(&mut self, index: usize) -> Option<T> {
         if index >= self.entries.len() {
             return None;
@@ -128,6 +137,32 @@ mod tests {
         list.activate(0);
         list.close(2);
         assert_eq!(list.entries()[list.active().unwrap()], "a");
+    }
+
+    #[test]
+    fn replacing_a_tab_with_one_to_its_right_activates_that_tab() {
+        let mut list = list_of(&["a", "b", "c"]);
+        assert!(list.close_in_favor_of(0, 2));
+        assert_eq!(list.entries(), ["b", "c"]);
+        assert_eq!(list.entries()[list.active().unwrap()], "c");
+    }
+
+    #[test]
+    fn replacing_a_tab_with_one_to_its_left_activates_that_tab() {
+        let mut list = list_of(&["a", "b", "c"]);
+        assert!(list.close_in_favor_of(2, 0));
+        assert_eq!(list.entries(), ["a", "b"]);
+        assert_eq!(list.entries()[list.active().unwrap()], "a");
+    }
+
+    #[test]
+    fn replacing_a_tab_with_itself_or_a_missing_tab_changes_nothing() {
+        let mut list = list_of(&["a", "b"]);
+        assert!(!list.close_in_favor_of(1, 1));
+        assert!(!list.close_in_favor_of(0, 7));
+        assert!(!list.close_in_favor_of(7, 0));
+        assert_eq!(list.entries(), ["a", "b"]);
+        assert_eq!(list.active(), Some(1));
     }
 
     #[test]

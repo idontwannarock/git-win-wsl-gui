@@ -77,6 +77,15 @@ fn is_drive_path(input: &str) -> bool {
 pub struct RepoKey(String);
 
 impl RepoLocation {
+    pub fn open_path(&self) -> String {
+        match &self.runner {
+            Runner::Windows => self.path.clone(),
+            Runner::Wsl { distro } => {
+                format!(r"\\wsl.localhost\{distro}{}", self.path.replace('/', "\\"))
+            }
+        }
+    }
+
     pub fn key(&self) -> RepoKey {
         RepoKey(match &self.runner {
             Runner::Windows => {
@@ -214,5 +223,26 @@ mod tests {
     #[test]
     fn a_windows_path_never_equals_a_wsl_path() {
         assert_ne!(key_of(r"C:\home\me\repo"), key_of(r"\\wsl$\Ubuntu\home\me\repo"));
+    }
+
+    #[test]
+    fn a_windows_location_opens_with_its_own_path() {
+        assert_eq!(resolve_ok("C:/code/repo").open_path(), "C:/code/repo");
+    }
+
+    #[test]
+    fn a_wsl_location_opens_with_a_wsl_localhost_path() {
+        assert_eq!(
+            resolve_ok(r"\\wsl$\Ubuntu\home\me\repo").open_path(),
+            r"\\wsl.localhost\Ubuntu\home\me\repo"
+        );
+    }
+
+    #[test]
+    fn the_open_path_of_a_location_parses_back_to_the_same_location() {
+        for input in [r"C:\code\repo", "C:/code/repo", r"\\wsl$\Ubuntu\home\me\repo", r"\\wsl$\Ubuntu\"] {
+            let location = resolve_ok(input);
+            assert_eq!(resolve_ok(&location.open_path()), location, "for {input}");
+        }
     }
 }
