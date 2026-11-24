@@ -12,7 +12,7 @@ The system SHALL show the commits of all local branches, remote branches, and ta
 - **THEN** the graph draws a line from the commit to each parent
 
 ### Requirement: History is read in pages
-The system SHALL read history with paged `git log` calls. The system SHALL NOT read the whole history before it shows the first rows. The system SHALL load the next page when the user scrolls near the end of the loaded rows.
+The system SHALL read history from one streamed `git log` process and hand it to the UI in pages. The system SHALL NOT parse or draw the whole history before it shows the first rows. The system SHALL load the next page when the user scrolls near the end of the loaded rows.
 
 #### Scenario: Large repository
 - **WHEN** the user opens a repository with 100,000 commits
