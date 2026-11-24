@@ -53,9 +53,9 @@ pub fn worktree_file_patch(
     }
     args.extend_from_slice(paths);
     let output = location.run(&args)?;
-    let differs_without_error =
-        kind == WorktreeDiff::Untracked && output.code == Some(1) && output.stderr.is_empty();
-    if output.success() || differs_without_error {
+    let found_a_difference =
+        kind == WorktreeDiff::Untracked && output.code == Some(1) && !output.stdout.is_empty();
+    if output.success() || found_a_difference {
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
     Err(CommandError::Failed(
@@ -379,6 +379,17 @@ mod tests {
         assert!(patch.contains("new file mode"), "{patch}");
         assert!(patch.contains("+++ b/sub dir/新檔.txt"), "{patch}");
         assert!(patch.contains("\n+hello\n+world\n"), "{patch}");
+    }
+
+    #[test]
+    fn an_untracked_file_gives_a_patch_when_git_warns_about_line_endings() {
+        let repo = TempRepo::new();
+        repo.git(&["config", "core.autocrlf", "true"]);
+        repo.write("new.txt", "one\ntwo\n");
+
+        let patch = worktree_patch(&repo, WorktreeDiff::Untracked, &["new.txt"]);
+
+        assert!(patch.contains("\n+one\n+two"), "{patch}");
     }
 
     #[test]
