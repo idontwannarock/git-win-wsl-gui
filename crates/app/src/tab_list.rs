@@ -16,6 +16,10 @@ impl<T> TabList<T> {
         self.active
     }
 
+    pub fn entry_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.entries.get_mut(index)
+    }
+
     pub fn open(&mut self, entry: T) -> usize {
         self.entries.push(entry);
         let index = self.entries.len() - 1;

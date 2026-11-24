@@ -73,6 +73,23 @@ fn is_drive_path(input: &str) -> bool {
         && (bytes[2] == b'\\' || bytes[2] == b'/')
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RepoKey(String);
+
+impl RepoLocation {
+    pub fn key(&self) -> RepoKey {
+        RepoKey(match &self.runner {
+            Runner::Windows => {
+                let path = self.path.replace('/', "\\");
+                format!("windows:{}", path.trim_end_matches('\\').to_lowercase())
+            }
+            Runner::Wsl { distro } => {
+                format!("wsl:{}:{}", distro.to_lowercase(), self.path.trim_end_matches('/'))
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +159,60 @@ mod tests {
     fn rejects_wsl_path_without_distro() {
         assert_eq!(RepoLocation::parse(r"\\wsl$"), Err(PathError::MissingDistro));
         assert_eq!(RepoLocation::parse(r"\\wsl$\"), Err(PathError::MissingDistro));
+    }
+
+    fn key_of(input: &str) -> RepoKey {
+        resolve_ok(input).key()
+    }
+
+    #[test]
+    fn windows_paths_ignore_case_slash_direction_and_a_trailing_separator() {
+        let key = key_of(r"C:\code\repo");
+        assert_eq!(key, key_of(r"c:\Code\REPO"));
+        assert_eq!(key, key_of(r"C:\code\repo\"));
+        assert_eq!(key, key_of("C:/code/repo"));
+    }
+
+    #[test]
+    fn different_windows_paths_have_different_keys() {
+        assert_ne!(key_of(r"C:\code\repo"), key_of(r"C:\code\repo2"));
+        assert_ne!(key_of(r"C:\code\repo"), key_of(r"D:\code\repo"));
+    }
+
+    #[test]
+    fn the_two_wsl_forms_have_the_same_key() {
+        assert_eq!(
+            key_of(r"\\wsl$\Ubuntu\home\me\repo"),
+            key_of(r"\\wsl.localhost\Ubuntu\home\me\repo")
+        );
+    }
+
+    #[test]
+    fn a_wsl_key_ignores_distro_case_and_a_trailing_separator() {
+        assert_eq!(
+            key_of(r"\\wsl$\Ubuntu\home\me\repo"),
+            key_of(r"\\wsl$\ubuntu\home\me\repo\")
+        );
+    }
+
+    #[test]
+    fn a_wsl_key_keeps_the_case_of_the_linux_path() {
+        assert_ne!(
+            key_of(r"\\wsl$\Ubuntu\home\me\Repo"),
+            key_of(r"\\wsl$\Ubuntu\home\me\repo")
+        );
+    }
+
+    #[test]
+    fn wsl_distros_have_different_keys() {
+        assert_ne!(
+            key_of(r"\\wsl$\Ubuntu\home\me\repo"),
+            key_of(r"\\wsl$\Debian\home\me\repo")
+        );
+    }
+
+    #[test]
+    fn a_windows_path_never_equals_a_wsl_path() {
+        assert_ne!(key_of(r"C:\home\me\repo"), key_of(r"\\wsl$\Ubuntu\home\me\repo"));
     }
 }

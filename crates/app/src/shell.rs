@@ -1,12 +1,13 @@
 use crate::keyboard::{FocusNext, FocusPrevious};
 use crate::motion::follow_system;
-use crate::repo_view::RepoView;
+use crate::repo_view::{Opened, RepoView};
 use crate::tab_list::TabList;
 use crate::tab_title::titles;
 use gpui::{
     AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton, ParentElement,
     PathPromptOptions, Render, StatefulInteractiveElement, Styled, Subscription, Task, Window, div,
 };
+use gitcore::runner::{RepoKey, RepoLocation};
 use gpui_component::Sizable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::label::Label;
@@ -19,6 +20,8 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 struct Tab {
     view: Entity<RepoView>,
     source: String,
+    key: Option<RepoKey>,
+    _opened: Subscription,
 }
 
 pub struct Shell {
@@ -71,12 +74,40 @@ impl Shell {
         window.focus(&handle, cx);
     }
 
+    fn find(&self, key: &RepoKey, except: Option<&Entity<RepoView>>) -> Option<usize> {
+        self.tabs
+            .entries()
+            .iter()
+            .position(|tab| tab.key.as_ref() == Some(key) && Some(&tab.view) != except)
+    }
+
     pub fn open(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        let key = RepoLocation::parse(&path).ok().map(|location| location.key());
+        if let Some(existing) = key.as_ref().and_then(|key| self.find(key, None)) {
+            self.activate(existing, window, cx);
+            return;
+        }
         let view = cx.new(RepoView::new);
+        let opened = cx.subscribe_in(&view, window, Self::on_opened);
         view.update(cx, |view, cx| view.open(path.clone(), cx));
-        self.tabs.open(Tab { view, source: path });
+        self.tabs.open(Tab { view, source: path, key, _opened: opened });
         self.focus_active(window, cx);
         cx.notify();
+    }
+
+    fn on_opened(&mut self, view: &Entity<RepoView>, event: &Opened, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.tabs.entries().iter().position(|tab| &tab.view == view) else {
+            return;
+        };
+        if let Some(existing) = self.find(&event.0, Some(view)) {
+            self.tabs.close(index);
+            let existing = if existing > index { existing - 1 } else { existing };
+            self.activate(existing, window, cx);
+            return;
+        }
+        if let Some(tab) = self.tabs.entry_mut(index) {
+            tab.key = Some(event.0.clone());
+        }
     }
 
     fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {

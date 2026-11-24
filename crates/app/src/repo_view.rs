@@ -9,9 +9,9 @@ use gitcore::changes::{ChangesError, FileChange, commit_changes};
 use gitcore::diff::commit_file_patch;
 use gitcore::refs::RefLabel;
 use gitcore::repo::open_repository;
-use gitcore::runner::Runner;
+use gitcore::runner::{RepoKey, Runner};
 use gpui::{
-    AnyElement, AppContext, Context, Div, FocusHandle, Hsla, InteractiveElement, IntoElement, KeyDownEvent,
+    AnyElement, AppContext, Context, Div, EventEmitter, FocusHandle, Hsla, InteractiveElement, IntoElement, KeyDownEvent,
     ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled, Window,
     UniformListScrollHandle, div, prelude::FluentBuilder, px, uniform_list,
 };
@@ -37,6 +37,10 @@ enum Screen {
     Loaded(Box<GraphState>),
     Failed(String),
 }
+
+pub struct Opened(pub RepoKey);
+
+impl EventEmitter<Opened> for RepoView {}
 
 pub struct RepoView {
     focus: FocusHandle,
@@ -92,6 +96,9 @@ impl RepoView {
                     }
                     Err(error) => Screen::Failed(error.to_string()),
                 };
+                if let Screen::Loaded(graph) = &this.screen {
+                    cx.emit(Opened(graph.location.key()));
+                }
                 this.load_more(cx);
                 this.refresh_working(cx);
                 cx.notify();

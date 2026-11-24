@@ -13,8 +13,8 @@
 
 ## 3. Slice: no duplicate tab (blocked by 2)
 
-- [ ] 3.1 (tdd) `gitcore`: `RepoLocation::key() -> RepoKey`. Tests cover: drive-letter case, path case, trailing separator on Windows; `wsl$` equals `wsl.localhost`; distro-name case ignored; Linux path case kept; trailing `/` ignored; different runners never equal.
-- [ ] 3.2 `Shell::open`: compare the parsed key with the open tabs before the read, and compare the resolved top-level key when the read ends. On a match, activate the old tab and close the new one. Check by hand: open the same folder twice with different case, open a sub-folder, open the WSL repository in both forms.
+- [x] 3.1 (tdd) `gitcore`: `RepoLocation::key() -> RepoKey`. Tests cover: drive-letter case, path case, trailing separator on Windows; `wsl$` equals `wsl.localhost`; distro-name case ignored; Linux path case kept; trailing `/` ignored; different runners never equal.
+- [x] 3.2 `Shell::open`: compare the parsed key with the open tabs before the read, and compare the resolved top-level key when the read ends. On a match, activate the old tab and close the new one. Check by hand: open the same folder twice with different case, open a sub-folder, open the WSL repository in both forms.
 
 ## 4. Slice: restore tabs (blocked by 2, 3)
 
