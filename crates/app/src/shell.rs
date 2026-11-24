@@ -2,6 +2,7 @@ use crate::keyboard::{FocusNext, FocusPrevious};
 use crate::motion::follow_system;
 use crate::repo_view::{Opened, RepoView};
 use crate::tab_list::TabList;
+use crate::tab_session;
 use crate::tab_title::titles;
 use gpui::{
     AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton, ParentElement,
@@ -81,18 +82,45 @@ impl Shell {
             .position(|tab| tab.key.as_ref() == Some(key) && Some(&tab.view) != except)
     }
 
+    fn add(&mut self, path: String, view: Entity<RepoView>, window: &mut Window, cx: &mut Context<Self>) {
+        let opened = cx.subscribe_in(&view, window, Self::on_opened);
+        let key = key_of(&path);
+        self.tabs.open(Tab { view, source: path, key, _opened: opened });
+    }
+
     pub fn open(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
-        let key = RepoLocation::parse(&path).ok().map(|location| location.key());
-        if let Some(existing) = key.as_ref().and_then(|key| self.find(key, None)) {
+        if let Some(existing) = key_of(&path).and_then(|key| self.find(&key, None)) {
             self.activate(existing, window, cx);
             return;
         }
         let view = cx.new(RepoView::new);
-        let opened = cx.subscribe_in(&view, window, Self::on_opened);
         view.update(cx, |view, cx| view.open(path.clone(), cx));
-        self.tabs.open(Tab { view, source: path, key, _opened: opened });
+        self.add(path, view, window, cx);
         self.focus_active(window, cx);
+        self.changed(cx);
+    }
+
+    pub fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (paths, active) = tab_session::load();
+        for path in paths {
+            let view = cx.new(|cx| RepoView::pending(path.clone(), cx));
+            self.add(path, view, window, cx);
+        }
+        self.activate(active, window, cx);
+    }
+
+    fn changed(&self, cx: &mut Context<Self>) {
+        let sources: Vec<String> = self.tabs.entries().iter().map(|tab| tab.source.clone()).collect();
+        tab_session::save(&sources, self.tabs.active().unwrap_or(0));
         cx.notify();
+    }
+
+    fn show_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus_active(window, cx);
+        if let Some(view) = self.active_view() {
+            view.update(cx, |view, cx| view.activate(cx));
+        }
+        self.changed(cx);
     }
 
     fn on_opened(&mut self, view: &Entity<RepoView>, event: &Opened, window: &mut Window, cx: &mut Context<Self>) {
@@ -111,22 +139,15 @@ impl Shell {
     }
 
     fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.tabs.activate(index) {
-            return;
+        if self.tabs.activate(index) {
+            self.show_active(window, cx);
         }
-        self.focus_active(window, cx);
-        if let Some(view) = self.active_view() {
-            view.update(cx, |view, cx| view.refresh_working(cx));
-        }
-        cx.notify();
     }
 
     fn close(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tabs.close(index).is_none() {
-            return;
+        if self.tabs.close(index).is_some() {
+            self.show_active(window, cx);
         }
-        self.focus_active(window, cx);
-        cx.notify();
     }
 
     fn choose_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -216,4 +237,8 @@ impl Render for Shell {
             .child(self.tab_bar(cx))
             .child(body)
     }
+}
+
+fn key_of(path: &str) -> Option<RepoKey> {
+    RepoLocation::parse(path).ok().map(|location| location.key())
 }

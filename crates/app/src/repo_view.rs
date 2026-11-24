@@ -33,6 +33,7 @@ const ID_WIDTH: f32 = 76.0;
 const LABEL_MAX_WIDTH: f32 = 180.0;
 
 enum Screen {
+    Pending(String),
     Loading,
     Loaded(Box<GraphState>),
     Failed(String),
@@ -56,6 +57,17 @@ impl RepoView {
             screen: Screen::Loading,
             scroll: UniformListScrollHandle::new(),
             bench: ScrollBench::from_env(),
+        }
+    }
+
+    pub fn pending(path: String, cx: &mut Context<Self>) -> Self {
+        Self { screen: Screen::Pending(path), ..Self::new(cx) }
+    }
+
+    pub fn activate(&mut self, cx: &mut Context<Self>) {
+        match &self.screen {
+            Screen::Pending(path) => self.open(path.clone(), cx),
+            _ => self.refresh_working(cx),
         }
     }
 
@@ -423,7 +435,7 @@ impl Render for RepoView {
             }
         }
         let body = match &self.screen {
-            Screen::Loading => Label::new("Opening...").into_any_element(),
+            Screen::Pending(_) | Screen::Loading => Label::new("Opening...").into_any_element(),
             Screen::Failed(message) => Label::new(message.clone()).into_any_element(),
             Screen::Loaded(graph) => self.graph_view(graph, cx),
         };

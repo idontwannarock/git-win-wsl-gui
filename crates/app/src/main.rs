@@ -9,6 +9,7 @@ mod motion;
 mod repo_view;
 mod shell;
 mod tab_list;
+mod tab_session;
 mod tab_title;
 mod theme;
 mod working;
@@ -51,6 +52,7 @@ fn main() {
         theme::apply(cx);
         cx.open_window(WindowOptions::default(), |window, cx| {
             let shell = cx.new(|cx| Shell::new(window, cx));
+            shell.update(cx, |shell, cx| shell.restore(window, cx));
             if let Some(path) = initial_path {
                 shell.update(cx, |shell, cx| shell.open(path, window, cx));
             }

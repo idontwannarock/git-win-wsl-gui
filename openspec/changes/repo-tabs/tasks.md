@@ -18,10 +18,10 @@
 
 ## 4. Slice: restore tabs (blocked by 2, 3)
 
-- [ ] 4.1 (tdd) `app`: `encode` and `decode` for `tabs.txt`. Tests cover: round trip, empty input, non-number first line, index out of range, blank lines, a lone index with no paths.
-- [ ] 4.2 `Shell`: save after each open, close, and activation. A write error goes to the debug log only. At start, read the file, create a `RepoView` with a `Pending` screen for each saved path, and open only the active one. A `Pending` view opens on its first activation. Add `Screen::Pending`. Check by hand: restart with three tabs, confirm only the active tab ran git (debug log); remove one folder and confirm only its tab shows an error; damage the file and confirm the app starts empty; start with a command-line path and confirm its tab is active.
+- [x] 4.1 (tdd) `app`: `encode` and `decode` for `tabs.txt`. Tests cover: round trip, empty input, non-number first line, index out of range, blank lines, a lone index with no paths.
+- [x] 4.2 `Shell`: save after each open, close, and activation. A write error goes to the debug log only. At start, read the file, create a `RepoView` with a `Pending` screen for each saved path, and open only the active one. A `Pending` view opens on its first activation. Add `Screen::Pending`. Check by hand: restart with three tabs, confirm only the active tab ran git (debug log); remove one folder and confirm only its tab shows an error; damage the file and confirm the app starts empty; start with a command-line path and confirm its tab is active.
 
 ## 5. Slice: documents and final checks (blocked by 4)
 
-- [ ] 5.1 `README.md`: add a Tabs section (open, close, restore, background tabs are quiet). Change the sentence "Every v1 action works without a mouse" to name the tab bar as the exception. `openspec/follow-ups.md`: mark 8.8 done. Add: keyboard shortcuts for tabs, drag to reorder, a change mark on background tabs, drop the history of far-away tabs.
-- [ ] 5.2 Run `cargo test`, `cargo clippy -- -D warnings`, `cargo build --release`. Run the tests again with an empty `GIT_CONFIG_GLOBAL` file. Run the release exe with three tabs and take a screenshot. Confirm `grep -rl GITGUI_TMP crates` finds nothing.
+- [x] 5.1 `README.md`: add a Tabs section (open, close, restore, background tabs are quiet). Change the sentence "Every v1 action works without a mouse" to name the tab bar as the exception. `openspec/follow-ups.md`: mark 8.8 done. Add: keyboard shortcuts for tabs, drag to reorder, a change mark on background tabs, drop the history of far-away tabs.
+- [x] 5.2 Run `cargo test`, `cargo clippy -- -D warnings`, `cargo build --release`. Run the tests again with an empty `GIT_CONFIG_GLOBAL` file. Run the release exe with three tabs and take a screenshot. Confirm `grep -rl GITGUI_TMP crates` finds nothing.
