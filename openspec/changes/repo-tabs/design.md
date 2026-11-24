@@ -58,7 +58,7 @@ A pure function `titles(paths: &[String]) -> Vec<String>`. The title is the last
 The function lives in `app` (it only formats) and has unit tests.
 
 ### D8. Tab bar widget
-Use the `gpui-component` `TabBar` and `Tab` (`tab::{Tab, TabBar}`). `Tab::suffix` carries the `×` button. `TabBar::suffix` carries the `+` button. `TabBar::track_scroll` lets the bar scroll when tabs overflow. The middle click handler is a `MouseButton::Middle` mouse-up listener on each tab. If `Tab` does not pass that event through, wrap the tab in a `div` that has the listener.
+Use the `gpui-component` `TabBar` and `Tab` (`tab::{Tab, TabBar}`). `Tab::suffix` carries the `×` button. `TabBar::suffix` carries the `+` button. `TabBar::track_scroll` lets the bar scroll when tabs overflow. The middle click handler is a `MouseButton::Middle` mouse-up listener on each tab. `Tab` implements `InteractiveElement`, so the listener sits on the tab itself (it compiles). The bar needs no wrapper. A person must confirm by hand that the middle click arrives.
 Alternative: build the bar from `div`s. Rejected until the widget proves it cannot do this: less code, same theme.
 
 ### D9. Window-level pieces stay in the shell
@@ -83,6 +83,3 @@ We write no automated UI test. We check the tab bar by hand and by screenshot, a
 - [Trade-off] A closed tab loses its typed commit message with no prompt. This follows the user's decision.
 - [Risk] Save on every change writes a small file often. → It is a few lines and happens only on a user click.
 
-## Open Questions
-
-- Does gpui-component's `Tab` pass a middle click to the app? D8 has a fallback. The first task that builds the bar answers it.

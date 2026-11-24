@@ -5,11 +5,11 @@
 
 ## 2. Slice: many tabs with the mouse (blocked by 1)
 
-- [ ] 2.1 (tdd) `app`: `titles(paths) -> Vec<String>`. Tests cover: one tab, two different names, two equal names (parent folder added to both), a WSL path, a root path with no parent.
-- [ ] 2.2 `app`: the tab bar with `gpui-component` `TabBar` and `Tab`: title, full path on hover, `×` button in the tab, `+` button at the end, middle click closes, the bar scrolls when tabs overflow. Opening from `+` or from the empty-screen button opens a new tab and activates it. Record in `design.md` D8 whether `Tab` passes the middle click or the wrapper `div` was needed. Check by screenshot with three repositories.
-- [ ] 2.3 `Shell`: move the 2-second poll and the window-activation observer into `Shell`. They act on the active tab only. Activating a tab focuses it and runs one `refresh_working`. Check: with two tabs open for 10 seconds, `%LOCALAPPDATA%\git-win-wsl-gui\app.log` shows `git status` for the active repository only.
-- [ ] 2.4 Close drops the tab entity. When the last tab closes, show the empty screen. Test: dropping a `LogStream` ends its git process (add the test only if none exists). Check by hand: close a tab while a large repository still reads, and confirm no `git.exe` stays in Task Manager.
-- [ ] 2.5 Check follow-up 8.8 by hand: open a large repository, switch to another tab before it finishes, and confirm the other tab does not change. Repeat with a branch switch (it reloads history) and a tab switch during the reload.
+- [x] 2.1 (tdd) `app`: `titles(paths) -> Vec<String>`. Tests cover: one tab, two different names, two equal names (parent folder added to both), a WSL path, a root path with no parent.
+- [x] 2.2 `app`: the tab bar with `gpui-component` `TabBar` and `Tab`: title, full path on hover, `×` button in the tab, `+` button at the end, middle click closes, the bar scrolls when tabs overflow. Opening from `+` or from the empty-screen button opens a new tab and activates it. Record in `design.md` D8 whether `Tab` passes the middle click or the wrapper `div` was needed. Check by screenshot with three repositories.
+- [x] 2.3 `Shell`: move the 2-second poll and the window-activation observer into `Shell`. They act on the active tab only. Activating a tab focuses it and runs one `refresh_working`. Check: with two tabs open for 10 seconds, `%LOCALAPPDATA%\git-win-wsl-gui\app.log` shows `git status` for the active repository only.
+- [x] 2.4 Close drops the tab entity. When the last tab closes, show the empty screen. Test: dropping a `LogStream` ends its git process (add the test only if none exists). Check by hand: close a tab while a large repository still reads, and confirm no `git.exe` stays in Task Manager.
+- [x] 2.5 Check follow-up 8.8 by hand: open a large repository, switch to another tab before it finishes, and confirm the other tab does not change. Repeat with a branch switch (it reloads history) and a tab switch during the reload.
 
 ## 3. Slice: no duplicate tab (blocked by 2)
 

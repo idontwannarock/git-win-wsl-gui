@@ -2,18 +2,23 @@ use crate::keyboard::{FocusNext, FocusPrevious};
 use crate::motion::follow_system;
 use crate::repo_view::RepoView;
 use crate::tab_list::TabList;
+use crate::tab_title::titles;
 use gpui::{
-    AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, PathPromptOptions,
-    Render, Styled, Subscription, Task, Window, div,
+    AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    PathPromptOptions, Render, StatefulInteractiveElement, Styled, Subscription, Task, Window, div,
 };
+use gpui_component::Sizable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::label::Label;
+use gpui_component::tab::{Tab as TabItem, TabBar};
+use gpui_component::tooltip::Tooltip;
 use std::time::Duration;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 struct Tab {
     view: Entity<RepoView>,
+    source: String,
 }
 
 pub struct Shell {
@@ -58,12 +63,38 @@ impl Shell {
         self.tabs.entries().get(index).map(|tab| tab.view.clone())
     }
 
+    fn focus_active(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let handle = match self.active_view() {
+            Some(view) => view.read(cx).focus_handle().clone(),
+            None => self.focus.clone(),
+        };
+        window.focus(&handle, cx);
+    }
+
     pub fn open(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let view = cx.new(RepoView::new);
-        view.update(cx, |view, cx| view.open(path, cx));
-        let focus = view.read(cx).focus_handle().clone();
-        window.focus(&focus, cx);
-        self.tabs.open(Tab { view });
+        view.update(cx, |view, cx| view.open(path.clone(), cx));
+        self.tabs.open(Tab { view, source: path });
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.tabs.activate(index) {
+            return;
+        }
+        self.focus_active(window, cx);
+        if let Some(view) = self.active_view() {
+            view.update(cx, |view, cx| view.refresh_working(cx));
+        }
+        cx.notify();
+    }
+
+    fn close(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.close(index).is_none() {
+            return;
+        }
+        self.focus_active(window, cx);
         cx.notify();
     }
 
@@ -88,13 +119,59 @@ impl Shell {
         })
         .detach();
     }
+
+    fn tab_bar(&self, cx: &mut Context<Self>) -> TabBar {
+        let sources: Vec<String> = self.tabs.entries().iter().map(|tab| tab.source.clone()).collect();
+        let items = titles(&sources).into_iter().zip(sources).enumerate().map(|(index, (title, source))| {
+            TabItem::new()
+                .label(title)
+                .suffix(
+                    Button::new(("close", index))
+                        .ghost()
+                        .small()
+                        .label("×")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.close(index, window, cx);
+                        })),
+                )
+                .on_mouse_up(
+                    MouseButton::Middle,
+                    cx.listener(move |this, _, window, cx| this.close(index, window, cx)),
+                )
+                .tooltip(move |window, cx| Tooltip::new(source.clone()).build(window, cx))
+        });
+        TabBar::new("tabs")
+            .underline()
+            .selected_index(self.tabs.active().unwrap_or(usize::MAX))
+            .on_click(cx.listener(|this, index: &usize, window, cx| this.activate(*index, window, cx)))
+            .children(items)
+            .suffix(
+                Button::new("open")
+                    .ghost()
+                    .label("+")
+                    .on_click(cx.listener(|this, _, window, cx| this.choose_folder(window, cx))),
+            )
+    }
 }
 
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body = match self.active_view() {
             Some(view) => div().flex().flex_col().flex_1().min_h_0().child(view).into_any_element(),
-            None => Label::new("Open a repository to begin").into_any_element(),
+            None => div()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap_2()
+                .child(Label::new("Open a repository to begin"))
+                .child(
+                    Button::new("open-empty")
+                        .primary()
+                        .label("Open repository...")
+                        .on_click(cx.listener(|this, _, window, cx| this.choose_folder(window, cx))),
+                )
+                .into_any_element(),
         };
         div()
             .size_full()
@@ -105,14 +182,7 @@ impl Render for Shell {
             .flex_col()
             .gap_2()
             .p_3()
-            .child(
-                div().flex().flex_none().child(
-                    Button::new("open")
-                        .primary()
-                        .label("Open repository...")
-                        .on_click(cx.listener(|this, _, window, cx| this.choose_folder(window, cx))),
-                ),
-            )
+            .child(self.tab_bar(cx))
             .child(body)
     }
 }

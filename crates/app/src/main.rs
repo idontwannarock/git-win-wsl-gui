@@ -9,6 +9,7 @@ mod motion;
 mod repo_view;
 mod shell;
 mod tab_list;
+mod tab_title;
 mod theme;
 mod working;
 #[cfg(test)]
