@@ -7,9 +7,23 @@ fn file_path() -> Option<PathBuf> {
 }
 
 pub fn load() -> (Vec<String>, usize) {
-    match file_path().and_then(|path| std::fs::read_to_string(path).ok()) {
-        Some(text) => decode(&text),
-        None => (Vec::new(), 0),
+    let Some(path) = file_path() else {
+        return (Vec::new(), 0);
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            let session = decode(&text);
+            if session.0.is_empty() && !text.trim().is_empty() {
+                trace::record(|| "tabs.txt has no usable tab list".to_owned());
+            }
+            session
+        }
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                trace::record(|| format!("cannot read tabs: {error}"));
+            }
+            (Vec::new(), 0)
+        }
     }
 }
 

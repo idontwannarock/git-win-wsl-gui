@@ -58,7 +58,7 @@ A pure function `titles(paths: &[String]) -> Vec<String>`. The title is the last
 The function lives in `app` (it only formats) and has unit tests.
 
 ### D8. Tab bar widget
-Use the `gpui-component` `TabBar` and `Tab` (`tab::{Tab, TabBar}`). `Tab::suffix` carries the `×` button. `TabBar::suffix` carries the `+` button. The bar scrolls when tabs overflow through the default scroll handle of `TabBar`. The middle click handler is a `MouseButton::Middle` mouse-up listener on each tab. `Tab` implements `InteractiveElement`, so the listener sits on the tab itself (it compiles). The bar needs no wrapper. A person must confirm by hand that the middle click arrives.
+Use the `gpui-component` `TabBar` and `Tab` (`tab::{Tab, TabBar}`). `Tab::suffix` carries the `×` button. `TabBar::suffix` carries the `+` button. The bar scrolls when tabs overflow through the default scroll handle of `TabBar`. The middle click handler is a `MouseButton::Middle` mouse-up listener on each tab. `Tab` implements `InteractiveElement`, so the listener sits on the tab itself (it compiles). The bar needs no wrapper. No machine check of a real middle click was possible (the test setup cannot send mouse input). The user must confirm it by hand.
 Alternative: build the bar from `div`s. Rejected until the widget proves it cannot do this: less code, same theme.
 
 ### D9. Window-level pieces stay in the shell

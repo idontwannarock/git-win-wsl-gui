@@ -69,7 +69,7 @@ Each tab holds one repository. Press `+` to open a repository in a new tab. Clic
 
 - A repository that is already open is not opened twice. The app shows its tab.
 - A tab keeps its state while you look at another tab: the commits, the scroll position, the selection, and the commit message you typed.
-- Only the tab you look at reads the Git status every 2 seconds. A tab in the background runs no Git command until you show it.
+- Only the tab you look at reads the Git status every 2 seconds. A tab in the background runs no Git command, except to finish the read of a repository you just opened.
 - When you close a tab, the commit message you typed in it is lost. The app does not ask.
 - The app saves the open tabs in `%LOCALAPPDATA%\git-win-wsl-gui\tabs.txt` and opens them again at the next start. A tab reads its repository when you first show it.
 

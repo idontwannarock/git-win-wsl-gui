@@ -109,6 +109,7 @@ impl Shell {
 
     pub fn restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (paths, active) = tab_session::load();
+        let active_key = paths.get(active).and_then(|path| key_of(path));
         for path in paths {
             if key_of(&path).is_some_and(|key| self.find(&key, None).is_some()) {
                 continue;
@@ -116,6 +117,7 @@ impl Shell {
             let view = cx.new(|cx| RepoView::pending(path.clone(), cx));
             self.add(path, view, window, cx);
         }
+        let active = active_key.and_then(|key| self.find(&key, None)).unwrap_or(0);
         self.activate(active, window, cx);
     }
 
@@ -139,8 +141,13 @@ impl Shell {
         };
         let key = event.0.key();
         if let Some(existing) = self.find(&key, Some(view)) {
+            let was_active = self.tabs.active() == Some(index);
             if self.tabs.close_in_favor_of(index, existing) {
-                self.show_active(window, cx);
+                if was_active {
+                    self.show_active(window, cx);
+                } else {
+                    self.changed(cx);
+                }
             }
             return;
         }

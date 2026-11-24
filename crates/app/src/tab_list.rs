@@ -38,8 +38,11 @@ impl<T> TabList<T> {
     pub fn close_in_favor_of(&mut self, closed: usize, kept: usize) -> bool {
         let valid = closed != kept && closed < self.entries.len() && kept < self.entries.len();
         if valid {
-            self.entries.remove(closed);
-            self.active = Some(if kept > closed { kept - 1 } else { kept });
+            let was_active = self.active == Some(closed);
+            self.close(closed);
+            if was_active {
+                self.active = Some(if kept > closed { kept - 1 } else { kept });
+            }
         }
         valid
     }
@@ -153,6 +156,21 @@ mod tests {
         assert!(list.close_in_favor_of(2, 0));
         assert_eq!(list.entries(), ["a", "b"]);
         assert_eq!(list.entries()[list.active().unwrap()], "a");
+    }
+
+    #[test]
+    fn replacing_a_tab_that_is_not_active_keeps_the_active_tab() {
+        let mut list = list_of(&["a", "b", "c"]);
+        list.activate(1);
+        assert!(list.close_in_favor_of(0, 2));
+        assert_eq!(list.entries(), ["b", "c"]);
+        assert_eq!(list.entries()[list.active().unwrap()], "b");
+
+        let mut list = list_of(&["a", "b", "c"]);
+        list.activate(1);
+        assert!(list.close_in_favor_of(2, 0));
+        assert_eq!(list.entries(), ["a", "b"]);
+        assert_eq!(list.entries()[list.active().unwrap()], "b");
     }
 
     #[test]
