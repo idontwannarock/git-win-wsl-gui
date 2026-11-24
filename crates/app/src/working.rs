@@ -338,6 +338,9 @@ impl Home {
             return;
         };
         let working = &mut graph.working;
+        if working.busy() {
+            return;
+        }
         let Some((side, _)) = working.selected.clone() else {
             return;
         };
@@ -476,7 +479,8 @@ fn group_list(side: Side, count: usize, nav: &ListNav, cx: &mut Context<Home>) -
 
 pub fn changes_view(working: &Working, cx: &mut Context<Home>) -> AnyElement {
     let Some(groups) = &working.groups else {
-        return Label::new("Reading changes...").into_any_element();
+        let message = working.error.clone().unwrap_or_else(|| "Reading changes...".to_owned());
+        return Label::new(message).into_any_element();
     };
     let patch = match &working.patch {
         None => div().into_any_element(),

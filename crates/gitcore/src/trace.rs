@@ -1,6 +1,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -9,28 +9,66 @@ const MAX_FILE_BYTES: u64 = 10_000_000;
 const MAX_ARG_CHARS: usize = 80;
 const MAX_STDERR_CHARS: usize = 300;
 
+struct Current {
+    file: File,
+    size: u64,
+}
+
 pub struct Trace {
-    file: Mutex<File>,
+    path: PathBuf,
+    limit: u64,
+    current: Mutex<Option<Current>>,
 }
 
 impl Trace {
     pub fn open(path: &Path) -> io::Result<Self> {
+        Self::open_with_limit(path, MAX_FILE_BYTES)
+    }
+
+    fn open_with_limit(path: &Path, limit: u64) -> io::Result<Self> {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
-        if fs::metadata(path).is_ok_and(|meta| meta.len() > MAX_FILE_BYTES) {
-            fs::rename(path, path.with_extension("log.old"))?;
+        if fs::metadata(path).is_ok_and(|meta| meta.len() > limit) {
+            move_to_old(path)?;
         }
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(Self { file: Mutex::new(file) })
+        let current = open_append(path)?;
+        Ok(Self { path: path.to_owned(), limit, current: Mutex::new(Some(current)) })
     }
 
     pub fn write(&self, at: SystemTime, message: &str) {
         let line = format!("{} {}\n", timestamp(at), one_line(message));
-        if let Ok(mut file) = self.file.lock() {
-            let _ = file.write_all(line.as_bytes());
+        let Ok(mut slot) = self.current.lock() else {
+            return;
+        };
+        let full = slot
+            .as_ref()
+            .is_some_and(|current| current.size > 0 && current.size + line.len() as u64 > self.limit);
+        if full {
+            *slot = None;
+            if move_to_old(&self.path).is_err() {
+                return;
+            }
+        }
+        if slot.is_none() {
+            *slot = open_append(&self.path).ok();
+        }
+        if let Some(current) = slot.as_mut()
+            && current.file.write_all(line.as_bytes()).is_ok()
+        {
+            current.size += line.len() as u64;
         }
     }
+}
+
+fn move_to_old(path: &Path) -> io::Result<()> {
+    fs::rename(path, path.with_extension("log.old"))
+}
+
+fn open_append(path: &Path) -> io::Result<Current> {
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
+    let size = file.metadata()?.len();
+    Ok(Current { file, size })
 }
 
 static GLOBAL: OnceLock<Trace> = OnceLock::new();
@@ -215,6 +253,22 @@ mod tests {
         trace.write(at(1_700_000_000, 0), "fresh");
         assert_eq!(fs::metadata(dir.join("app.log.old")).unwrap().len(), MAX_FILE_BYTES + 1);
         assert_eq!(fs::read_to_string(&path).unwrap(), "2023-11-14T22:13:20.000Z fresh\n");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_grows_past_the_limit_while_open_moves_to_old() {
+        let dir = temp_dir("grow");
+        let path = dir.join("app.log");
+        let trace = Trace::open_with_limit(&path, 100).unwrap();
+        for second in 0..3 {
+            trace.write(at(1_700_000_000 + second, 0), "a message of some length");
+        }
+        let old = fs::read_to_string(dir.join("app.log.old")).unwrap();
+        let current = fs::read_to_string(&path).unwrap();
+        assert_eq!((old.lines().count(), current.lines().count()), (2, 1));
+        assert!(!old.is_empty() && !current.is_empty());
+        assert!(current.len() <= 100);
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -361,6 +361,9 @@ impl Home {
     fn graph_view(&self, graph: &GraphState, cx: &mut Context<Self>) -> AnyElement {
         let status = match (&graph.error, graph.rows.len()) {
             (Some(error), _) => error.clone(),
+            (None, 0) if graph.stream.is_none() && graph.reading.is_none() => {
+                "No commits yet".to_owned()
+            }
             (None, 0) => "Loading commits...".to_owned(),
             (None, count) => format!("{} - {count} commits loaded", describe(graph)),
         };

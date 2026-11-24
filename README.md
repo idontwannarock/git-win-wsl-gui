@@ -25,6 +25,7 @@ v1 does not do: hunk or line staging, side-by-side diff, rebase, stash, merge ed
 - Windows. The app is tested on Windows 11.
 - `git` on Windows, in `PATH`. The app uses `git switch`, so Git 2.23 or newer.
 - For repositories in WSL: WSL, and `git` installed inside each distro that holds a repository.
+- Open only repositories you trust. Git runs the hooks and the settings of a repository (for example `core.fsmonitor`). This app runs Git, so it does the same.
 - To build: Rust (edition 2024, a current stable toolchain).
 
 ## Build and run
@@ -44,6 +45,8 @@ cargo test
 cargo clippy -- -D warnings
 cargo build --release
 ```
+
+The WSL tests use the distro `Ubuntu`. Set `GITCORE_WSL_DISTRO` to use another distro. Without a usable distro, the WSL tests do nothing and still pass. A passing `cargo test` on such a machine does not test the WSL path.
 
 ## Keyboard
 

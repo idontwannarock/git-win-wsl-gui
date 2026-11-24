@@ -2,11 +2,11 @@ use crate::exec::CommandError;
 use crate::runner::RepoLocation;
 
 pub fn checkout_local(location: &RepoLocation, branch: &str) -> Result<(), CommandError> {
-    location.run_checked(&["switch", branch]).map(drop)
+    location.run_checked(&["switch", "--", branch]).map(drop)
 }
 
 pub fn checkout_remote(location: &RepoLocation, remote_branch: &str) -> Result<(), CommandError> {
-    location.run_checked(&["switch", "--track", remote_branch]).map(drop)
+    location.run_checked(&["switch", "--track", "--", remote_branch]).map(drop)
 }
 
 #[cfg(test)]
@@ -30,6 +30,21 @@ mod tests {
         checkout_local(&repo.location, "topic").unwrap();
 
         assert_eq!(current_branch(&repo.location), "topic");
+    }
+
+    #[test]
+    fn a_branch_name_that_looks_like_an_option_is_checked_out_as_a_name() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "a");
+        repo.commit("one");
+        repo.git(&["update-ref", "refs/heads/-Cmain", "HEAD"]);
+        let main_before = repo.location.run_checked(&["rev-parse", "main"]).unwrap();
+
+        checkout_local(&repo.location, "-Cmain").unwrap();
+
+        assert_eq!(current_branch(&repo.location), "-Cmain");
+        let main_after = repo.location.run_checked(&["rev-parse", "main"]).unwrap();
+        assert_eq!(main_before, main_after);
     }
 
     #[test]
