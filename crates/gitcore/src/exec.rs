@@ -1,4 +1,5 @@
 use crate::runner::{RepoLocation, Runner};
+use crate::trace;
 use std::ffi::OsStr;
 use std::fmt;
 use std::io;
@@ -6,6 +7,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::Instant;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -133,9 +135,16 @@ pub(crate) fn hide_window(command: &mut Command) {
 pub fn run_command(mut command: Command) -> Result<GitOutput, RunError> {
     hide_window(&mut command);
     let program = command.get_program().to_string_lossy().into_owned();
-    let output = command
-        .output()
-        .map_err(|source| RunError::Spawn { program, source })?;
+    let started = Instant::now();
+    let result = command.output();
+    trace::record(|| {
+        format!(
+            "{} -> {}",
+            trace::describe_command(&command),
+            trace::describe_outcome(&result, started.elapsed())
+        )
+    });
+    let output = result.map_err(|source| RunError::Spawn { program, source })?;
     Ok(GitOutput {
         code: output.status.code(),
         stdout: output.stdout,

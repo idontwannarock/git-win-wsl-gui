@@ -66,6 +66,16 @@ git maintenance start
 
 It keeps a commit-graph file up to date in the background. Git then reads history much faster, and so does this app. The app does not ask Git to write a commit-graph file into your repository.
 
+## Debug log
+
+The app writes a log to `%LOCALAPPDATA%\git-win-wsl-gui\app.log`. The log lists:
+
+- each `git` command with its exit code, its run time, and the start of its error text,
+- errors from the commit history reader,
+- panics, with a backtrace.
+
+When the file grows past 1 MB, the app renames it to `app.log.old` and starts a new file. The log can hold parts of your commit messages and paths.
+
 ## Fonts and license
 
 The app embeds two fonts under the SIL Open Font License 1.1. The files and licenses are in `crates/app/assets/fonts/`:

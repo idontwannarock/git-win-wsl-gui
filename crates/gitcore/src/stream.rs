@@ -1,6 +1,7 @@
 use crate::exec::{RunError, hide_window};
 use crate::log::{Commit, LOG_FORMAT, ParseError};
 use crate::runner::RepoLocation;
+use crate::trace;
 use std::fmt;
 use std::io::{self, BufRead, BufReader, Read};
 use std::process::{Child, ChildStdout, Stdio};
@@ -41,12 +42,19 @@ impl LogStream {
         let mut command = location.command(&["log", "--all", "--topo-order", "-z", LOG_FORMAT]);
         hide_window(&mut command);
         let program = command.get_program().to_string_lossy().into_owned();
-        let mut child = command
+        let spawned = command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|source| RunError::Spawn { program, source })?;
+            .spawn();
+        trace::record(|| {
+            let outcome = match &spawned {
+                Ok(_) => "streaming".to_owned(),
+                Err(error) => format!("cannot start: {error}"),
+            };
+            format!("{} -> {outcome}", trace::describe_command(&command))
+        });
+        let mut child = spawned.map_err(|source| RunError::Spawn { program, source })?;
         let stdout = child.stdout.take().expect("stdout is piped");
         let (sender, batches) = sync_channel(BATCHES_IN_FLIGHT);
         thread::spawn(move || read_batches(stdout, batch_size, sender));
@@ -65,11 +73,16 @@ impl LogStream {
             Ok(Ok(batch)) => Some(Ok(batch)),
             Ok(Err(error)) => {
                 self.finished = true;
+                trace::record(|| format!("log stream failed: {error:?}"));
                 Some(Err(error))
             }
             Err(_) => {
                 self.finished = true;
-                self.exit_failure().map(|message| Err(StreamError::Git(message)))
+                let failure = self.exit_failure();
+                if let Some(message) = &failure {
+                    trace::record(|| format!("log stream git failed: {message}"));
+                }
+                failure.map(|message| Err(StreamError::Git(message)))
             }
         }
     }

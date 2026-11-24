@@ -11,5 +11,6 @@ pub mod repo;
 pub mod runner;
 pub mod status;
 pub mod stream;
+pub mod trace;
 #[cfg(test)]
 mod testutil;
