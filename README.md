@@ -11,7 +11,7 @@ The UI uses [gpui](https://crates.io/crates/gpui-pre) and [gpui-component](https
 
 ## What v1 does
 
-- Open a repository.
+- Open a repository. Open several repositories in tabs.
 - Show the multi-branch commit graph. The app reads history in pages, so a repository with 100,000 commits opens fast.
 - Show a commit with its files and a unified diff.
 - Show the working tree: staged and unstaged files, with a live diff.
@@ -61,7 +61,19 @@ The WSL tests use the distro `Ubuntu`. Set `GITCORE_WSL_DISTRO` to use another d
 | Enter | Check out the selected branch (branch list) |
 | Space | Stage or unstage the selected file (changes list) |
 
-The focused element has an accent-colored ring. Every v1 action works without a mouse.
+The focused element has an accent-colored ring. Every v1 action works without a mouse, except the tab bar (see Tabs).
+
+## Tabs
+
+Each tab holds one repository. Press `+` to open a repository in a new tab. Click a tab to show it. Press `×` on a tab, or click it with the middle mouse button, to close it.
+
+- A repository that is already open is not opened twice. The app shows its tab.
+- A tab keeps its state while you look at another tab: the commits, the scroll position, the selection, and the commit message you typed.
+- Only the tab you look at reads the Git status every 2 seconds. A tab in the background runs no Git command, except to finish the read of a repository you just opened.
+- When you close a tab, the commit message you typed in it is lost. The app does not ask.
+- The app saves the open tabs in `%LOCALAPPDATA%\git-win-wsl-gui\tabs.txt` and opens them again at the next start. A tab reads its repository when you first show it.
+
+The tab bar works with the mouse only. Keyboard shortcuts for tabs are not available yet.
 
 ## Large repositories
 

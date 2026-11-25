@@ -4,9 +4,13 @@ mod bench;
 mod branches;
 mod detail;
 mod graph;
-mod home;
 mod keyboard;
 mod motion;
+mod repo_view;
+mod shell;
+mod tab_list;
+mod tab_session;
+mod tab_title;
 mod theme;
 mod working;
 #[cfg(test)]
@@ -15,7 +19,7 @@ mod patch_parse_tests;
 use gitcore::trace;
 use gpui::{App, AppContext, WindowOptions};
 use gpui_component::Root;
-use home::Home;
+use shell::Shell;
 
 fn start_trace() {
     let Some(base) = std::env::var_os("LOCALAPPDATA") else {
@@ -47,11 +51,12 @@ fn main() {
         theme::load_fonts(cx);
         theme::apply(cx);
         cx.open_window(WindowOptions::default(), |window, cx| {
-            let home = cx.new(|cx| Home::new(window, cx));
+            let shell = cx.new(|cx| Shell::new(window, cx));
+            shell.update(cx, |shell, cx| shell.restore(window, cx));
             if let Some(path) = initial_path {
-                home.update(cx, |home, cx| home.open(path, cx));
+                shell.update(cx, |shell, cx| shell.open(path, window, cx));
             }
-            cx.new(|cx| Root::new(home, window, cx))
+            cx.new(|cx| Root::new(shell, window, cx))
         })
         .expect("open window");
         cx.activate(true);

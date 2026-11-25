@@ -1,7 +1,6 @@
 use crate::bench::ScrollBench;
 use crate::branches::branches_view;
-use crate::motion::follow_system;
-use crate::keyboard::{FocusNext, FocusPrevious, Step, list_region, stepped};
+use crate::keyboard::{Step, list_region, stepped};
 use crate::theme::{MONO, chip_colors};
 use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
@@ -10,22 +9,21 @@ use gitcore::changes::{ChangesError, FileChange, commit_changes};
 use gitcore::diff::commit_file_patch;
 use gitcore::refs::RefLabel;
 use gitcore::repo::open_repository;
-use gitcore::runner::Runner;
+use gitcore::runner::{RepoLocation, Runner};
 use gpui::{
-    AnyElement, AppContext, Context, Div, FocusHandle, Hsla, InteractiveElement, IntoElement, KeyDownEvent,
-    ParentElement, PathPromptOptions, Render, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription, Task, Window,
+    AnyElement, AppContext, Context, Div, EventEmitter, FocusHandle, Hsla, InteractiveElement, IntoElement, KeyDownEvent,
+    ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled, Window,
     UniformListScrollHandle, div, prelude::FluentBuilder, px, uniform_list,
 };
 use crate::working::{Mode, changes_view};
 use gpui_component::ActiveTheme;
 use gpui_component::Selectable;
-use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::button::Button;
 use gpui_component::diff::{DiffFile, DiffState};
 use gpui_component::label::Label;
 use std::ops::Range;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const BATCH_SIZE: usize = 500;
 const PREFETCH_ROWS: usize = 100;
 const SHORT_ID_LENGTH: usize = 7;
@@ -35,52 +33,50 @@ const ID_WIDTH: f32 = 76.0;
 const LABEL_MAX_WIDTH: f32 = 180.0;
 
 enum Screen {
-    Empty,
+    Pending(String),
     Loading,
     Loaded(Box<GraphState>),
     Failed(String),
 }
 
-pub struct Home {
+pub struct Opened(pub RepoLocation);
+
+impl EventEmitter<Opened> for RepoView {}
+
+pub struct RepoView {
     focus: FocusHandle,
     screen: Screen,
     scroll: UniformListScrollHandle,
     bench: Option<ScrollBench>,
-    _activation: Subscription,
-    _poll: Task<()>,
 }
 
-impl Home {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let activation = cx.observe_window_activation(window, |this, window, cx| {
-            if window.is_window_active() {
-                follow_system(cx);
-                this.refresh_working(cx);
-            }
-        });
-        let poll = cx.spawn_in(window, async move |this, cx| {
-            loop {
-                cx.background_executor().timer(POLL_INTERVAL).await;
-                let alive = this.update_in(cx, |this, window, cx| {
-                    if window.is_window_active() {
-                        this.poll_working(cx);
-                    }
-                });
-                if alive.is_err() {
-                    break;
-                }
-            }
-        });
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
+impl RepoView {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            focus,
-            screen: Screen::Empty,
+            focus: cx.focus_handle(),
+            screen: Screen::Loading,
             scroll: UniformListScrollHandle::new(),
             bench: ScrollBench::from_env(),
-            _activation: activation,
-            _poll: poll,
         }
+    }
+
+    pub fn pending(path: String, cx: &mut Context<Self>) -> Self {
+        Self { screen: Screen::Pending(path), ..Self::new(cx) }
+    }
+
+    pub fn is_failed(&self) -> bool {
+        matches!(self.screen, Screen::Failed(_))
+    }
+
+    pub fn activate(&mut self, cx: &mut Context<Self>) {
+        match &self.screen {
+            Screen::Pending(path) => self.open(path.clone(), cx),
+            _ => self.refresh_working(cx),
+        }
+    }
+
+    pub fn focus_handle(&self) -> &FocusHandle {
+        &self.focus
     }
 
     pub fn graph(&self) -> Option<&GraphState> {
@@ -116,6 +112,9 @@ impl Home {
                     }
                     Err(error) => Screen::Failed(error.to_string()),
                 };
+                if let Screen::Loaded(graph) = &this.screen {
+                    cx.emit(Opened(graph.location.clone()));
+                }
                 this.load_more(cx);
                 this.refresh_working(cx);
                 cx.notify();
@@ -179,28 +178,6 @@ impl Home {
             })
             .ok();
         }));
-    }
-
-    fn choose_folder(&mut self, cx: &mut Context<Self>) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: None,
-        });
-        cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
-                return;
-            };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            this.update(cx, |this, cx| {
-                this.open(path.to_string_lossy().into_owned(), cx)
-            })
-            .ok();
-        })
-        .detach();
     }
 
     fn rows_in(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -449,7 +426,7 @@ impl Home {
     }
 }
 
-impl Render for Home {
+impl Render for RepoView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let (Screen::Loaded(graph), Some(bench)) = (&self.screen, &mut self.bench) {
             let finished = graph.stream.is_none() && graph.reading.is_none();
@@ -462,28 +439,15 @@ impl Render for Home {
             }
         }
         let body = match &self.screen {
-            Screen::Empty => Label::new("Open a repository to begin").into_any_element(),
-            Screen::Loading => Label::new("Opening...").into_any_element(),
+            Screen::Pending(_) | Screen::Loading => Label::new("Opening...").into_any_element(),
             Screen::Failed(message) => Label::new(message.clone()).into_any_element(),
             Screen::Loaded(graph) => self.graph_view(graph, cx),
         };
         div()
             .size_full()
             .track_focus(&self.focus)
-            .on_action(cx.listener(|_, _: &FocusNext, window, cx| window.focus_next(cx)))
-            .on_action(cx.listener(|_, _: &FocusPrevious, window, cx| window.focus_prev(cx)))
             .flex()
             .flex_col()
-            .gap_2()
-            .p_3()
-            .child(
-                div().flex().flex_none().child(
-                    Button::new("open")
-                        .primary()
-                        .label("Open repository...")
-                        .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
-                ),
-            )
             .child(body)
     }
 }
