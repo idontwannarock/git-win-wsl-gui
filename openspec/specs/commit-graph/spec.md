@@ -17,7 +17,7 @@ The system SHALL show the commits of all local branches, remote branches, and ta
 - **THEN** the graph draws a line from the commit to each parent
 
 ### Requirement: The graph column has a fixed width
-The system SHALL give the graph column the width of 8 lanes, whatever the number of open lanes. When a row has more than 8 lanes, the system SHALL draw the first 6, draw no line or dot past them, and show `+N` at the right end of the column, where N is the number of lanes it did not draw.
+The system SHALL give the graph column the width of 8 lanes, whatever the number of open lanes. When a row has more than 8 lanes, the system SHALL draw the first 6, draw no line or dot past them, and show `+N` at the right end of the column, where N is the number of open lanes of that row that it did not draw. The system SHALL NOT draw a line that has one end in a lane it did not draw.
 
 #### Scenario: Many branches open at once
 - **WHEN** a row has 12 open lanes
