@@ -50,6 +50,10 @@ pub fn sync_labels(branch: Option<&Branch>) -> SyncLabels {
     SyncLabels { pull: with("Pull", '↓', behind), push: with("Push", '↑', ahead) }
 }
 
+fn reloads_history(remote: Remote, succeeded: bool) -> bool {
+    succeeded || remote != Remote::Push
+}
+
 impl RepoView {
     pub fn sync(&mut self, remote: Remote, cx: &mut Context<Self>) {
         let Some(graph) = self.graph_mut() else {
@@ -80,12 +84,13 @@ impl RepoView {
             return;
         };
         graph.working.action_task = None;
-        match result {
-            Ok(()) => {
-                graph.sync_note = Some(SyncNote::Done(remote));
-                self.reload_history(cx);
-            }
-            Err(text) => graph.sync_note = Some(SyncNote::Failed(text)),
+        let succeeded = result.is_ok();
+        graph.sync_note = Some(match result {
+            Ok(()) => SyncNote::Done(remote),
+            Err(text) => SyncNote::Failed(text),
+        });
+        if reloads_history(remote, succeeded) {
+            self.reload_history(cx);
         }
         self.refresh_working(cx);
         cx.notify();
@@ -167,6 +172,14 @@ mod tests {
         assert_eq!(labels(Some(&branch(Some((0, 0))))), ("Pull".to_owned(), "Push".to_owned()));
         assert_eq!(labels(Some(&branch(Some((3, 0))))), ("Pull".to_owned(), "Push ↑3".to_owned()));
         assert_eq!(labels(Some(&branch(Some((0, 4))))), ("Pull ↓4".to_owned(), "Push".to_owned()));
+    }
+
+    #[test]
+    fn a_failed_fetch_or_pull_may_have_moved_refs_but_a_failed_push_has_not() {
+        assert!(reloads_history(Remote::Fetch, false));
+        assert!(reloads_history(Remote::Pull, false));
+        assert!(!reloads_history(Remote::Push, false));
+        assert!(reloads_history(Remote::Push, true));
     }
 
     #[test]
