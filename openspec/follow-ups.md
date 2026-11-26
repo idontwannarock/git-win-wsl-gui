@@ -29,3 +29,6 @@ Open work found while building `v1-core` (archived in `openspec/changes/archive/
 - [ ] 8.25 Pull with merge or rebase, and show a conflict state. Today `Pull` is `--ff-only`, and a diverged branch needs a terminal.
 - [ ] 8.26 The result line of a remote command ("Pushed", an error) sits above the branch list and moves the list down when it appears. Reserve the space, or show the line inside the toolbar.
 - [ ] 8.27 The result line of a remote command stays until the next remote command. Clear it when the user starts another action (stage, commit, checkout).
+- [ ] 8.28 Force delete (`git branch -D`) for a branch that is not fully merged. Today the app shows the message of Git, and the user runs the command in a terminal.
+- [ ] 8.29 Create a branch from a chosen commit or branch. Today a new branch always starts at the current commit.
+- [ ] 8.30 Delete a remote branch (`git push origin --delete <name>`), and rename a branch.

@@ -16,7 +16,7 @@ The UI uses [gpui](https://crates.io/crates/gpui-pre) and [gpui-component](https
 - Show a commit with its files and a unified diff.
 - Show the working tree: staged and unstaged files, with a live diff.
 - Stage and unstage a file. Stage all. Create a commit.
-- List local and remote branches. Check out a branch.
+- List local and remote branches. Check out, create, and delete a branch.
 - Fetch, pull, and push.
 
 v1 does not do: hunk or line staging, side-by-side diff, rebase, stash, merge editor, light theme, macOS, Linux.
@@ -75,6 +75,14 @@ Each tab holds one repository. Press `+` to open a repository in a new tab. Clic
 - The app saves the open tabs in `%LOCALAPPDATA%\git-win-wsl-gui\tabs.txt` and opens them again at the next start. A tab reads its repository when you first show it.
 
 The tab bar works with the mouse only. Keyboard shortcuts for tabs are not available yet.
+
+## Branches
+
+The branch panel is on the left of a repository.
+
+- **Create**: type a name in the field and press `Create` (or `Enter`). The new branch starts at the current commit, and the app checks it out. Changes in your work tree stay. Git decides which names are valid, and the app shows its message when it refuses one.
+- **Delete**: select a local branch that is not the current branch, press `Delete`, then press `Delete` again to confirm. The app runs `git branch -d`. Git refuses a branch that is not fully merged, and the app shows its message. To force it, run `git branch -D <name>` in a terminal.
+- The app does not delete remote branches.
 
 ## Remote
 

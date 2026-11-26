@@ -448,6 +448,7 @@ impl Render for RepoView {
                 None => window.request_animation_frame(),
             }
         }
+        self.ensure_branch_name(window, cx);
         let body = match &self.screen {
             Screen::Pending(_) | Screen::Loading => Label::new("Opening...").into_any_element(),
             Screen::Failed(message) => Label::new(message.clone()).into_any_element(),
