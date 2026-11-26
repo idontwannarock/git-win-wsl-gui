@@ -1,6 +1,7 @@
 use crate::bench::ScrollBench;
 use crate::branches::branches_view;
 use crate::keyboard::{Step, list_region, stepped};
+use crate::sync::{sync_buttons, sync_note_line};
 use crate::theme::{MONO, chip_colors};
 use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
@@ -404,7 +405,16 @@ impl RepoView {
             .flex_1()
             .min_h_0()
             .gap_1()
-            .child(tabs)
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_between()
+                    .child(tabs)
+                    .child(sync_buttons(graph, cx)),
+            )
+            .children(sync_note_line(graph, cx))
             .child(
                 div()
                     .flex()

@@ -1,6 +1,7 @@
 use crate::branches::BranchPanel;
 use crate::detail::Detail;
 use crate::keyboard::ListNav;
+use crate::sync::SyncNote;
 use crate::theme::{MUTED, lane_color};
 use crate::working::{Mode, Working};
 use gitcore::lanes::{GraphRow, LaneLayout};
@@ -40,6 +41,7 @@ pub struct GraphState {
     pub branches: BranchPanel,
     pub branches_nav: ListNav,
     pub error: Option<String>,
+    pub sync_note: Option<SyncNote>,
     pub reading: Option<Task<()>>,
     pub stream: Option<LogStream>,
     layout: LaneLayout,
@@ -72,6 +74,7 @@ impl GraphState {
             working: Working::new(cx),
             rows: Vec::new(),
             error: None,
+            sync_note: None,
             reading: None,
             stream: Some(opened.stream),
             layout: LaneLayout::new(),

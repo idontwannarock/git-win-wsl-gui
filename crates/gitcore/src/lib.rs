@@ -7,6 +7,7 @@ pub mod index;
 pub mod lanes;
 pub mod log;
 pub mod refs;
+pub mod remote;
 pub mod repo;
 pub mod runner;
 pub mod status;
