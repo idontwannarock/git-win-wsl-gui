@@ -8,6 +8,7 @@ mod keyboard;
 mod motion;
 mod repo_view;
 mod shell;
+mod sync;
 mod tab_list;
 mod tab_session;
 mod tab_title;

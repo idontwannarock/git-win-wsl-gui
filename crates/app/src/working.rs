@@ -6,7 +6,7 @@ use gitcore::exec::CommandError;
 use gitcore::index::{commit, stage, stage_all, unstage};
 use gitcore::runner::RepoLocation;
 use gitcore::status::{
-    ChangeKind, FileState, Groups, Status, StatusError, WorkingFile, read_status,
+    Branch, ChangeKind, FileState, Groups, Status, StatusError, WorkingFile, read_status,
 };
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement,
@@ -38,6 +38,7 @@ pub enum Mode {
 
 pub struct Working {
     pub groups: Option<Groups>,
+    pub branch: Option<Branch>,
     pub selected: Option<(Side, String)>,
     pub patch: Option<Load<Entity<DiffState>>>,
     patch_text: String,
@@ -56,6 +57,7 @@ impl Working {
     pub fn new(cx: &App) -> Self {
         Self {
             groups: None,
+            branch: None,
             selected: None,
             patch: None,
             patch_text: String::new(),
@@ -240,6 +242,7 @@ impl RepoView {
         match result {
             Ok(status) => {
                 working.groups = Some(status.groups());
+                working.branch = Some(status.branch);
                 working.error = None;
             }
             Err(error) => working.error = Some(error.to_string()),

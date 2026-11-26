@@ -17,6 +17,7 @@ The UI uses [gpui](https://crates.io/crates/gpui-pre) and [gpui-component](https
 - Show the working tree: staged and unstaged files, with a live diff.
 - Stage and unstage a file. Stage all. Create a commit.
 - List local and remote branches. Check out a branch.
+- Fetch, pull, and push.
 
 v1 does not do: hunk or line staging, side-by-side diff, rebase, stash, merge editor, light theme, macOS, Linux.
 
@@ -74,6 +75,17 @@ Each tab holds one repository. Press `+` to open a repository in a new tab. Clic
 - The app saves the open tabs in `%LOCALAPPDATA%\git-win-wsl-gui\tabs.txt` and opens them again at the next start. A tab reads its repository when you first show it.
 
 The tab bar works with the mouse only. Keyboard shortcuts for tabs are not available yet.
+
+## Remote
+
+The buttons **Fetch**, **Pull**, and **Push** are at the top right of a repository.
+
+- **Fetch** runs `git fetch --all --prune`. It also removes remote-tracking branches that the remote deleted.
+- **Pull** runs `git pull --ff-only`. It moves the branch only when that is a fast-forward. When the branch and its upstream both have new commits, the app shows the message of Git and changes nothing. Fix that case in a terminal (`git merge` or `git rebase`).
+- **Push** runs `git push`. A branch with no upstream goes to the remote `origin`, and the app sets that branch as its upstream. A push that the remote refuses shows the message of Git. The app never forces a push.
+- `Pull ↓2` means the branch is 2 commits behind its upstream. `Push ↑1` means it is 1 commit ahead. The numbers change after a fetch.
+- While a command runs, the three buttons are grey, and staging, commit, and checkout wait.
+- A command never asks for a password at a terminal. It fails with the message of Git. A credential helper that has its own window (Git Credential Manager) still works. For SSH, load the key into `ssh-agent` first.
 
 ## Large repositories
 
