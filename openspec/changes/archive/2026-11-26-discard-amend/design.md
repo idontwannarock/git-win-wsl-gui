@@ -31,6 +31,7 @@ Alternative: a modal dialog. Rejected: the app has none.
 ### D4. Amend is a toggle, not a second button
 `Working.amending: bool`. When it turns on and the message box is empty, the app reads the last message with `git log -1 --format=%B` on the background executor and puts it in the box. If the box has text, the text stays, because it is what the user typed. When it turns off, the text stays. The commit button reads `Amend` while the toggle is on.
 `can_commit(message, amending)`: not busy, message not empty, and either staged files exist (commit) or the branch has a commit (amend: `Working.branch.oid` is `Some`). An amend with no staged file changes the message only.
+Amend turns off when a status read shows another head commit than the one before (`keeps_amending`). Without this, a checkout or a pull after the toggle would amend a commit that the user never saw. Found in review. The message in the box stays, because it is visible and the user may have edited it.
 Alternative: a separate `Amend` button next to `Commit`. Rejected: the user then retypes the old message, because nothing fills it.
 
 ### D5. `amend` and `commit` share the error path

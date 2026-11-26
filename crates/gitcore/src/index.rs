@@ -1,6 +1,7 @@
 use crate::exec::CommandError;
 use crate::runner::RepoLocation;
-use crate::status::{FileState, WorkingFile};
+use crate::diff::WorktreeDiff;
+use crate::status::WorkingFile;
 
 fn run_on_paths(
     location: &RepoLocation,
@@ -27,8 +28,8 @@ pub fn discard(location: &RepoLocation, file: &WorkingFile) -> Result<(), Comman
     if !file.can_discard() {
         return Err(CommandError::Failed(format!("cannot discard {}", file.path)));
     }
-    let command: &[&str] = match file.state {
-        FileState::Untracked => &["clean", "-f"],
+    let command: &[&str] = match file.diff {
+        WorktreeDiff::Untracked => &["clean", "-f"],
         _ => &["restore", "--worktree"],
     };
     let mut args = vec!["--literal-pathspecs"];

@@ -98,6 +98,10 @@ The system SHALL let the user amend the last commit with the staged files and a 
 - **WHEN** the branch has no commit
 - **THEN** the amend toggle is disabled
 
+#### Scenario: Head moves
+- **WHEN** amend is on and the head commit changes (a checkout, a pull, or a commit made outside the app)
+- **THEN** amend turns off
+
 #### Scenario: Hook rejects the amend
 - **WHEN** a hook fails
 - **THEN** the system shows the hook output, and keeps the message, the staged files, and the last commit

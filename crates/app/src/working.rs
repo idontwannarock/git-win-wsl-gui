@@ -73,6 +73,11 @@ struct CommitState {
     busy: bool,
 }
 
+fn keeps_amending(before: Option<&Branch>, after: &Branch) -> bool {
+    let head = before.and_then(|branch| branch.oid.as_ref());
+    head.is_some() && head == after.oid.as_ref()
+}
+
 fn commit_ready(state: CommitState, message: &str) -> bool {
     let has_content = if state.amending { state.has_commit } else { state.staged };
     has_content && !state.busy && !message.trim().is_empty()
@@ -141,6 +146,15 @@ impl Working {
 
     fn has_commit(&self) -> bool {
         self.branch.as_ref().is_some_and(|branch| branch.oid.is_some())
+    }
+
+    fn can_toggle_amend(&self) -> bool {
+        !self.busy() && (self.amending || self.has_commit())
+    }
+
+    fn select(&mut self, selected: Option<(Side, String)>) {
+        self.selected = selected;
+        self.discard.cancel();
     }
 
     fn selected_unstaged(&self) -> Option<&WorkingFile> {
@@ -297,7 +311,7 @@ impl RepoView {
             return;
         };
         let working = &mut graph.working;
-        if working.busy() || !(working.amending || working.has_commit()) {
+        if !working.can_toggle_amend() {
             return;
         }
         working.amending = !working.amending;
@@ -394,13 +408,14 @@ impl RepoView {
                 let groups = status.groups();
                 working.discard.keep_if_discardable(&groups.unstaged);
                 working.groups = Some(groups);
+                working.amending &= keeps_amending(working.branch.as_ref(), &status.branch);
                 working.branch = Some(status.branch);
                 working.error = None;
             }
             Err(error) => working.error = Some(error.to_string()),
         }
         if working.selected.is_some() && working.selected_file().is_none() {
-            working.selected = None;
+            working.select(None);
             working.patch = None;
             working.patch_task = None;
         }
@@ -424,8 +439,7 @@ impl RepoView {
         let Some(graph) = self.graph_mut() else {
             return;
         };
-        graph.working.selected = Some((side, path));
-        graph.working.discard.cancel();
+        graph.working.select(Some((side, path)));
         graph.working.patch = None;
         self.load_working_patch(cx);
     }
@@ -508,7 +522,7 @@ impl RepoView {
         };
         let paths: Vec<String> = file.patch_paths().into_iter().map(str::to_owned).collect();
         let next = working.next_after_selected();
-        working.selected = next.map(|path| (side, path));
+        working.select(next.map(|path| (side, path)));
         working.patch = None;
         working.patch_task = None;
         self.run_index_action(
@@ -703,7 +717,7 @@ pub fn changes_view(working: &Working, cx: &mut Context<RepoView>) -> AnyElement
                     Button::new("amend")
                         .label("Amend")
                         .selected(working.amending)
-                        .disabled(working.busy() || !(working.amending || working.has_commit()))
+                        .disabled(!working.can_toggle_amend())
                         .on_click(cx.listener(|this, _, window, cx| this.toggle_amend(window, cx))),
                 )
                 .child(
@@ -786,6 +800,27 @@ mod tests {
 
     fn ready(staged: bool, amending: bool, has_commit: bool, message: &str, busy: bool) -> bool {
         commit_ready(CommitState { staged, amending, has_commit, busy }, message)
+    }
+
+    fn branch_at(oid: Option<&str>) -> Branch {
+        Branch {
+            head: Some("main".to_owned()),
+            oid: oid.map(|text| gitcore::log::Oid::parse(text).unwrap()),
+            ..Branch::default()
+        }
+    }
+
+    const FIRST: &str = "1111111111111111111111111111111111111111";
+    const SECOND: &str = "2222222222222222222222222222222222222222";
+
+    #[test]
+    fn an_amend_ends_when_the_head_commit_changes() {
+        let before = Some(branch_at(Some(FIRST)));
+
+        assert!(keeps_amending(before.as_ref(), &branch_at(Some(FIRST))));
+        assert!(!keeps_amending(before.as_ref(), &branch_at(Some(SECOND))));
+        assert!(!keeps_amending(before.as_ref(), &branch_at(None)));
+        assert!(!keeps_amending(None, &branch_at(Some(FIRST))));
     }
 
     #[test]
