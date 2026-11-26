@@ -16,7 +16,7 @@
 ## Decisions
 
 ### D1. Two functions in `gitcore`, Git decides what is valid
-`gitcore::branch::create(&RepoLocation, name)` and `delete(&RepoLocation, name)`. Both return `Result<(), CommandError>`. `create` runs `git check-ref-format --branch <name>` first and then `git switch -c <name>`. The check rejects a name that starts with `-`, so a name cannot pass as an option (principle: boundary-discipline). Every other rule (spaces, `..`, a name that exists) is Git's, and its message goes to the user. The app has no copy of those rules (principle: model-the-domain).
+`gitcore::branch::create(&RepoLocation, name)` and `delete(&RepoLocation, name)`. Both return `Result<(), CommandError>`. `create` runs `git switch -c <name>`. Git rejects a name that starts with `-` ("is not a valid branch name"), so the name cannot act as an option (principle: boundary-discipline). Every other rule (spaces, `..`, a name that exists) is Git's too, and its message goes to the user. The app has no copy of those rules (principle: model-the-domain). The first plan ran `git check-ref-format --branch` before the switch. A review showed that `switch -c` makes the same check, so the extra command was removed.
 `delete` runs `git branch -d -- <name>`.
 Alternative: validate the name in the UI. Rejected: it copies the rules of Git, and they change between versions.
 

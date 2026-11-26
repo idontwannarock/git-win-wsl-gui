@@ -10,7 +10,6 @@ pub fn checkout_remote(location: &RepoLocation, remote_branch: &str) -> Result<(
 }
 
 pub fn create(location: &RepoLocation, name: &str) -> Result<(), CommandError> {
-    location.run_checked(&["check-ref-format", "--branch", name])?;
     location.run_checked(&["switch", "-c", name]).map(drop)
 }
 
