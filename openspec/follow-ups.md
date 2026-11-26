@@ -32,3 +32,7 @@ Open work found while building `v1-core` (archived in `openspec/changes/archive/
 - [ ] 8.28 Force delete (`git branch -D`) for a branch that is not fully merged. Today the app shows the message of Git, and the user runs the command in a terminal.
 - [ ] 8.29 Create a branch from a chosen commit or branch. Today a new branch always starts at the current commit.
 - [ ] 8.30 Delete a remote branch (`git push origin --delete <name>`), and rename a branch.
+- [ ] 8.31 Discard all unstaged changes, and discard a hunk or a line. Today `Discard` works on one file.
+- [ ] 8.32 Undo a discard. Today a discard cannot be undone, and only the confirmation step guards it.
+- [ ] 8.33 Warn before an amend of a commit that is already pushed. Today the next push is refused and the app never forces a push.
+- [ ] 8.34 The confirmation of a discard (and of a branch delete) moves the lists when it appears. Reserve the space or show it in a fixed place. Same cause as 8.26.

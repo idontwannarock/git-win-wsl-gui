@@ -77,6 +77,19 @@ impl WorkingFile {
         paths.extend(self.renamed_from.as_deref());
         paths
     }
+
+    pub fn can_discard(&self) -> bool {
+        matches!(
+            (self.diff, self.state),
+            (WorktreeDiff::Untracked, _)
+                | (
+                    WorktreeDiff::Unstaged,
+                    FileState::Changed(
+                        ChangeKind::Modified | ChangeKind::Deleted | ChangeKind::TypeChanged
+                    )
+                )
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -505,6 +518,26 @@ mod tests {
             entries,
         }
         .groups()
+    }
+
+    #[test]
+    fn only_unstaged_content_changes_and_untracked_files_can_be_discarded() {
+        let unstaged = |kind| file("a.txt", FileState::Changed(kind), WorktreeDiff::Unstaged);
+        for kind in [ChangeKind::Modified, ChangeKind::Deleted, ChangeKind::TypeChanged] {
+            assert!(unstaged(kind).can_discard(), "{kind:?}");
+        }
+        for kind in [ChangeKind::Added, ChangeKind::Renamed, ChangeKind::Copied] {
+            assert!(!unstaged(kind).can_discard(), "{kind:?}");
+        }
+        assert!(file("a.txt", FileState::Untracked, WorktreeDiff::Untracked).can_discard());
+        let staged = file("a.txt", FileState::Changed(ChangeKind::Modified), WorktreeDiff::Staged);
+        assert!(!staged.can_discard());
+        let conflicted = file(
+            "a.txt",
+            FileState::Conflicted(ConflictKind::BothModified),
+            WorktreeDiff::Unstaged,
+        );
+        assert!(!conflicted.can_discard());
     }
 
     #[test]
