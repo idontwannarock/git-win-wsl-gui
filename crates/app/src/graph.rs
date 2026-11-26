@@ -1,7 +1,7 @@
 use crate::branches::BranchPanel;
 use crate::detail::Detail;
 use crate::keyboard::ListNav;
-use crate::theme::lane_color;
+use crate::theme::{MUTED, lane_color};
 use crate::working::{Mode, Working};
 use gitcore::lanes::{GraphRow, LaneLayout};
 use gitcore::log::{Commit, Oid};
@@ -10,14 +10,15 @@ use gitcore::repo::OpenedRepo;
 use gitcore::runner::RepoLocation;
 use gitcore::stream::{LogStream, StreamError};
 use gpui::{
-    App, Bounds, FocusHandle, IntoElement, PathBuilder, Pixels, Point, Styled, Task, Window, canvas, fill,
-    point, px,
+    App, Bounds, FocusHandle, IntoElement, ParentElement, PathBuilder, Pixels, Point, Styled, Task, Window,
+    canvas, div, fill, point, px,
 };
 use std::collections::HashMap;
 
 pub const ROW_HEIGHT: f32 = 24.0;
 const LANE_WIDTH: f32 = 14.0;
-const VISIBLE_LANES: usize = 8;
+const CELL_LANES: usize = 8;
+const MARKER_LANES: usize = 2;
 const LINE_WIDTH: f32 = 2.0;
 const DOT_SIZE: f32 = 8.0;
 
@@ -97,25 +98,57 @@ impl GraphState {
     }
 }
 
-pub fn lane_cell(row: &CommitRow) -> impl IntoElement {
-    let lanes = row.lanes.clone();
-    canvas(
-        |_, _, _| (),
-        move |bounds, _, window, _| paint_lanes(window, bounds, &lanes),
-    )
-    .w(px(LANE_WIDTH * VISIBLE_LANES as f32))
-    .h(px(ROW_HEIGHT))
-    .flex_none()
+#[derive(Debug, PartialEq, Eq)]
+struct LaneFit {
+    drawn: usize,
+    hidden: usize,
 }
 
-fn paint_lanes(window: &mut Window, bounds: Bounds<Pixels>, row: &GraphRow) {
+fn lane_fit(width: usize) -> LaneFit {
+    let drawn = if width <= CELL_LANES { width } else { CELL_LANES - MARKER_LANES };
+    LaneFit { drawn, hidden: width - drawn }
+}
+
+pub fn lane_cell(row: &CommitRow) -> impl IntoElement {
+    let lanes = row.lanes.clone();
+    let fit = lane_fit(lanes.width);
+    let marker = (fit.hidden > 0).then(|| {
+        div()
+            .absolute()
+            .top_0()
+            .right_0()
+            .w(px(LANE_WIDTH * MARKER_LANES as f32))
+            .h_full()
+            .flex()
+            .items_center()
+            .justify_end()
+            .text_xs()
+            .text_color(MUTED.hsla())
+            .child(format!("+{}", fit.hidden))
+    });
+    div()
+        .relative()
+        .w(px(LANE_WIDTH * CELL_LANES as f32))
+        .h(px(ROW_HEIGHT))
+        .flex_none()
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| paint_lanes(window, bounds, &lanes, fit.drawn),
+            )
+            .size_full(),
+        )
+        .children(marker)
+}
+
+fn paint_lanes(window: &mut Window, bounds: Bounds<Pixels>, row: &GraphRow, drawn: usize) {
     let top = bounds.origin.y;
     let middle = top + bounds.size.height / 2.0;
     let bottom = top + bounds.size.height;
     let x = |lane: usize| bounds.origin.x + px(LANE_WIDTH) * (lane as f32 + 0.5);
 
     let mut segment = |lane: usize, from: Point<Pixels>, to: Point<Pixels>| {
-        if lane >= VISIBLE_LANES {
+        if lane >= drawn {
             return;
         }
         let mut path = PathBuilder::stroke(px(LINE_WIDTH));
@@ -135,12 +168,34 @@ fn paint_lanes(window: &mut Window, bounds: Bounds<Pixels>, row: &GraphRow) {
         segment(lane, point(x(row.column), middle), point(x(lane), bottom));
     }
 
-    if row.column < VISIBLE_LANES {
+    if row.column < drawn {
         let size = px(DOT_SIZE);
         let dot = Bounds::new(
             point(x(row.column) - size / 2.0, middle - size / 2.0),
             gpui::size(size, size),
         );
         window.paint_quad(fill(dot, lane_color(row.column)).corner_radii(size / 2.0));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn up_to_eight_lanes_every_lane_is_drawn() {
+        assert_eq!(lane_fit(0), LaneFit { drawn: 0, hidden: 0 });
+        assert_eq!(lane_fit(1), LaneFit { drawn: 1, hidden: 0 });
+        assert_eq!(lane_fit(8), LaneFit { drawn: 8, hidden: 0 });
+    }
+
+    #[test]
+    fn nine_lanes_draw_six_and_hide_three() {
+        assert_eq!(lane_fit(9), LaneFit { drawn: 6, hidden: 3 });
+    }
+
+    #[test]
+    fn many_lanes_draw_six_and_hide_the_rest() {
+        assert_eq!(lane_fit(40), LaneFit { drawn: 6, hidden: 34 });
     }
 }

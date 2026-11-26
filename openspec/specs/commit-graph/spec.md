@@ -16,6 +16,17 @@ The system SHALL show the commits of all local branches, remote branches, and ta
 - **WHEN** a commit has two parents
 - **THEN** the graph draws a line from the commit to each parent
 
+### Requirement: The graph column has a fixed width
+The system SHALL give the graph column the width of 8 lanes, whatever the number of open lanes. When a row has more than 8 lanes, the system SHALL draw the first 6, draw no line or dot past them, and show `+N` at the right end of the column, where N is the number of lanes it did not draw.
+
+#### Scenario: Many branches open at once
+- **WHEN** a row has 12 open lanes
+- **THEN** the column keeps the width of 8 lanes, the row draws lanes 1 to 6, and the row shows `+6`
+
+#### Scenario: Eight lanes or fewer
+- **WHEN** a row has 8 open lanes or fewer
+- **THEN** the row draws every lane and shows no marker
+
 ### Requirement: History is read in pages
 The system SHALL read history from one streamed `git log` process and hand it to the UI in pages. The system SHALL NOT parse or draw the whole history before it shows the first rows. The system SHALL load the next page when the user scrolls near the end of the loaded rows.
 
