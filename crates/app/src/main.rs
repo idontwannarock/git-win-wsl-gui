@@ -12,12 +12,13 @@ mod tab_list;
 mod tab_session;
 mod tab_title;
 mod theme;
+mod window_size;
 mod working;
 #[cfg(test)]
 mod patch_parse_tests;
 
 use gitcore::trace;
-use gpui::{App, AppContext, WindowOptions};
+use gpui::{App, AppContext, Bounds, WindowBounds, WindowOptions};
 use gpui_component::Root;
 use shell::Shell;
 
@@ -50,7 +51,13 @@ fn main() {
         motion::follow_system(cx);
         theme::load_fonts(cx);
         theme::apply(cx);
-        cx.open_window(WindowOptions::default(), |window, cx| {
+        let window_bounds = cx.primary_display().map(|display| {
+            let visible = display.visible_bounds();
+            let fitted = window_size::default_size(visible.size);
+            WindowBounds::Windowed(Bounds::centered_at(visible.center(), fitted))
+        });
+        let options = WindowOptions { window_bounds, ..WindowOptions::default() };
+        cx.open_window(options, |window, cx| {
             let shell = cx.new(|cx| Shell::new(window, cx));
             shell.update(cx, |shell, cx| shell.restore(window, cx));
             if let Some(path) = initial_path {
