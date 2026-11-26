@@ -1,17 +1,18 @@
 use crate::graph::GraphState;
 use crate::repo_view::RepoView;
 use crate::keyboard::{Step, list_region, stepped};
-use gitcore::branch::{checkout_local, checkout_remote};
+use gitcore::branch::{checkout_local, checkout_remote, create, delete};
 use gitcore::log::Oid;
 use gitcore::refs::{RefKind, RefLabel};
 use gpui::{
-    AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
-    ScrollStrategy, StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
-    uniform_list,
+    AnyElement, AppContext, ClickEvent, Context, Entity, InteractiveElement, IntoElement, KeyDownEvent,
+    ParentElement, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription, Window, div,
+    prelude::FluentBuilder, px, uniform_list,
 };
 use gpui_component::ActiveTheme;
 use gpui_component::Disableable;
 use gpui_component::button::Button;
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::label::Label;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -29,6 +30,9 @@ pub struct BranchPanel {
     entries: Vec<Entry>,
     selected: Option<(RefKind, String)>,
     error: Option<String>,
+    confirming_delete: Option<String>,
+    name: Option<Entity<InputState>>,
+    name_subscription: Option<Subscription>,
 }
 
 impl BranchPanel {
@@ -37,7 +41,34 @@ impl BranchPanel {
             entries: entries(refs),
             selected: None,
             error: None,
+            confirming_delete: None,
+            name: None,
+            name_subscription: None,
         }
+    }
+
+    fn select(&mut self, kind: RefKind, name: String) {
+        self.selected = Some((kind, name));
+        self.confirming_delete = None;
+    }
+
+    fn can_delete(&self) -> bool {
+        self.selected_branch()
+            .is_some_and(|label| label.kind == RefKind::Branch && !label.is_head)
+    }
+
+    fn ask_delete(&mut self) {
+        if self.can_delete() {
+            self.confirming_delete = self.selected.as_ref().map(|(_, name)| name.clone());
+        }
+    }
+
+    fn cancel_delete(&mut self) {
+        self.confirming_delete = None;
+    }
+
+    fn confirming_delete(&self) -> Option<&str> {
+        self.confirming_delete.as_deref()
     }
 
     fn stepped_selection(&self, step: Step) -> Option<(usize, RefKind, String)> {
@@ -46,6 +77,7 @@ impl BranchPanel {
 
     pub fn show_refs(&mut self, refs: &HashMap<Oid, Vec<RefLabel>>) {
         self.entries = entries(refs);
+        self.confirming_delete = None;
     }
 
     fn selected_branch(&self) -> Option<&RefLabel> {
@@ -108,7 +140,7 @@ fn entries(refs: &HashMap<Oid, Vec<RefLabel>>) -> Vec<Entry> {
 impl RepoView {
     pub fn select_branch(&mut self, kind: RefKind, name: String, cx: &mut Context<Self>) {
         if let Some(graph) = self.graph_mut() {
-            graph.branches.selected = Some((kind, name));
+            graph.branches.select(kind, name);
             cx.notify();
         }
     }
@@ -145,12 +177,102 @@ impl RepoView {
         });
         graph.working.action_task = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
-            this.update(cx, |this, cx| this.finish_checkout(result, cx)).ok();
+            this.update(cx, |this, cx| this.finish_branch_command(result, cx)).ok();
         }));
         cx.notify();
     }
 
-    fn finish_checkout(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+    pub fn ensure_branch_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        if graph.branches.name.is_some() {
+            return;
+        }
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder("New branch name"));
+        graph.branches.name_subscription = Some(cx.subscribe_in(
+            &state,
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } => this.create_branch(window, cx),
+                _ => {}
+            },
+        ));
+        graph.branches.name = Some(state);
+    }
+
+    pub fn create_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let Some(state) = &graph.branches.name else {
+            return;
+        };
+        let name = state.read(cx).value().trim().to_owned();
+        if graph.working.busy() || name.is_empty() {
+            return;
+        }
+        let location = graph.location.clone();
+        graph.branches.error = None;
+        let task = cx.background_executor().spawn(async move {
+            create(&location, &name).map_err(|error| error.to_string())
+        });
+        graph.working.action_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            this.update_in(cx, |this, window, cx| this.finish_create(result, window, cx))
+                .ok();
+        }));
+        cx.notify();
+    }
+
+    fn finish_create(&mut self, result: Result<(), String>, window: &mut Window, cx: &mut Context<Self>) {
+        let created = result.is_ok();
+        self.finish_branch_command(result, cx);
+        let name = self.graph().and_then(|graph| graph.branches.name.clone());
+        if let (true, Some(state)) = (created, name) {
+            state.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+    }
+
+    pub fn ask_delete(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut() {
+            graph.branches.ask_delete();
+            cx.notify();
+        }
+    }
+
+    pub fn cancel_delete(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut() {
+            graph.branches.cancel_delete();
+            cx.notify();
+        }
+    }
+
+    pub fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let Some(name) = graph.branches.confirming_delete().map(str::to_owned) else {
+            return;
+        };
+        if graph.working.busy() {
+            return;
+        }
+        graph.branches.cancel_delete();
+        graph.branches.error = None;
+        let location = graph.location.clone();
+        let task = cx.background_executor().spawn(async move {
+            delete(&location, &name).map_err(|error| error.to_string())
+        });
+        graph.working.action_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| this.finish_branch_command(result, cx)).ok();
+        }));
+        cx.notify();
+    }
+
+    fn finish_branch_command(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
         let Some(graph) = self.graph_mut() else {
             return;
         };
@@ -231,7 +353,14 @@ impl RepoView {
 pub fn branches_view(graph: &GraphState, cx: &mut Context<RepoView>) -> AnyElement {
     let panel = &graph.branches;
     let danger = cx.theme().danger;
-    let can_check_out = panel.can_check_out() && !graph.working.busy();
+    let busy = graph.working.busy();
+    let can_check_out = panel.can_check_out() && !busy;
+    let can_delete = panel.can_delete() && !busy;
+    let name_typed = panel
+        .name
+        .as_ref()
+        .is_some_and(|state| !state.read(cx).value().trim().is_empty());
+    let can_create = name_typed && !busy;
     div()
         .flex()
         .flex_col()
@@ -271,11 +400,52 @@ pub fn branches_view(graph: &GraphState, cx: &mut Context<RepoView>) -> AnyEleme
                 .text_color(danger)
                 .child(error)
         }))
+        .child(match panel.confirming_delete() {
+            Some(name) => div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(Label::new(format!("Delete {name}?")))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            Button::new("confirm-delete")
+                                .label("Delete")
+                                .disabled(busy)
+                                .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
+                        )
+                        .child(
+                            Button::new("cancel-delete")
+                                .label("Cancel")
+                                .on_click(cx.listener(|this, _, _, cx| this.cancel_delete(cx))),
+                        ),
+                )
+                .into_any_element(),
+            None => div()
+                .flex()
+                .gap_2()
+                .child(
+                    Button::new("checkout")
+                        .label("Checkout")
+                        .disabled(!can_check_out)
+                        .on_click(cx.listener(|this, _, _, cx| this.checkout_selected(cx))),
+                )
+                .child(
+                    Button::new("delete")
+                        .label("Delete")
+                        .disabled(!can_delete)
+                        .on_click(cx.listener(|this, _, _, cx| this.ask_delete(cx))),
+                )
+                .into_any_element(),
+        })
+        .children(panel.name.as_ref().map(Input::new))
         .child(
-            Button::new("checkout")
-                .label("Checkout")
-                .disabled(!can_check_out)
-                .on_click(cx.listener(|this, _, _, cx| this.checkout_selected(cx))),
+            Button::new("create")
+                .label("Create")
+                .disabled(!can_create)
+                .on_click(cx.listener(|this, _, window, cx| this.create_branch(window, cx))),
         )
         .into_any_element()
 }
@@ -353,6 +523,59 @@ mod tests {
     fn a_repository_without_remotes_has_no_remote_header() {
         let refs = by_commit(vec![label("main", RefKind::Branch, true)]);
         assert_eq!(describe(&entries(&refs)), ["# Local", "main"]);
+    }
+
+    fn panel_with_selection(kind: RefKind, name: &str) -> BranchPanel {
+        let refs = by_commit(vec![
+            label("main", RefKind::Branch, true),
+            label("topic", RefKind::Branch, false),
+            label("other", RefKind::Branch, false),
+            label("origin/topic", RefKind::RemoteBranch, false),
+        ]);
+        let mut panel = BranchPanel::new(&refs);
+        panel.select(kind, name.to_owned());
+        panel
+    }
+
+    #[test]
+    fn only_a_local_branch_that_is_not_current_can_be_deleted() {
+        assert!(panel_with_selection(RefKind::Branch, "topic").can_delete());
+        assert!(!panel_with_selection(RefKind::Branch, "main").can_delete());
+        assert!(!panel_with_selection(RefKind::RemoteBranch, "origin/topic").can_delete());
+        assert!(!BranchPanel::new(&HashMap::new()).can_delete());
+    }
+
+    #[test]
+    fn a_delete_asks_first_and_selecting_another_branch_cancels_it() {
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        assert_eq!(panel.confirming_delete(), None);
+
+        panel.ask_delete();
+        assert_eq!(panel.confirming_delete(), Some("topic"));
+
+        panel.select(RefKind::Branch, "other".to_owned());
+        assert_eq!(panel.confirming_delete(), None);
+    }
+
+    #[test]
+    fn a_delete_is_not_asked_for_a_branch_that_cannot_be_deleted() {
+        let mut panel = panel_with_selection(RefKind::Branch, "main");
+
+        panel.ask_delete();
+
+        assert_eq!(panel.confirming_delete(), None);
+    }
+
+    #[test]
+    fn new_refs_and_cancel_end_the_question() {
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.ask_delete();
+        panel.cancel_delete();
+        assert_eq!(panel.confirming_delete(), None);
+
+        panel.ask_delete();
+        panel.show_refs(&HashMap::new());
+        assert_eq!(panel.confirming_delete(), None);
     }
 
     #[test]
