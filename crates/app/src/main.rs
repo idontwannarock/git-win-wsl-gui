@@ -18,7 +18,7 @@ mod working;
 mod patch_parse_tests;
 
 use gitcore::trace;
-use gpui::{App, AppContext, Bounds, Pixels, Size, WindowBounds, WindowOptions, px, size};
+use gpui::{App, AppContext, Bounds, WindowBounds, WindowOptions};
 use gpui_component::Root;
 use shell::Shell;
 
@@ -42,15 +42,6 @@ fn start_trace() {
     }));
 }
 
-fn window_size(cx: &App) -> Size<Pixels> {
-    let visible = cx
-        .primary_display()
-        .map(|display| display.visible_bounds().size)
-        .map_or((f32::MAX, f32::MAX), |size| (size.width.into(), size.height.into()));
-    let (width, height) = window_size::default_size(visible);
-    size(px(width), px(height))
-}
-
 fn main() {
     start_trace();
     let initial_path = std::env::args().nth(1);
@@ -60,10 +51,12 @@ fn main() {
         motion::follow_system(cx);
         theme::load_fonts(cx);
         theme::apply(cx);
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, window_size(cx), cx))),
-            ..WindowOptions::default()
-        };
+        let window_bounds = cx.primary_display().map(|display| {
+            let visible = display.visible_bounds();
+            let fitted = window_size::default_size(visible.size);
+            WindowBounds::Windowed(Bounds::centered_at(visible.center(), fitted))
+        });
+        let options = WindowOptions { window_bounds, ..WindowOptions::default() };
         cx.open_window(options, |window, cx| {
             let shell = cx.new(|cx| Shell::new(window, cx));
             shell.update(cx, |shell, cx| shell.restore(window, cx));
