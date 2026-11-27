@@ -96,7 +96,9 @@ impl BranchPanel {
 
     pub fn show_refs(&mut self, refs: &HashMap<Oid, Vec<RefLabel>>) {
         self.entries = entries(refs);
-        self.confirming_delete = None;
+        if !self.can_delete() {
+            self.confirming_delete = None;
+        }
     }
 
     fn selected_branch(&self) -> Option<&RefLabel> {
@@ -611,6 +613,34 @@ mod tests {
         panel.select(RefKind::Branch, "other".to_owned());
 
         panel.offer_force("topic");
+
+        assert_eq!(panel.confirming_delete(), None);
+    }
+
+    #[test]
+    fn new_refs_keep_the_question_while_the_branch_can_still_be_deleted() {
+        let refs = by_commit(vec![
+            label("main", RefKind::Branch, true),
+            label("topic", RefKind::Branch, false),
+        ]);
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.offer_force("topic");
+
+        panel.show_refs(&refs);
+
+        assert_eq!(panel.confirming_delete(), Some(&prompt("topic", DeleteMode::Force)));
+    }
+
+    #[test]
+    fn new_refs_end_the_question_when_the_branch_became_current() {
+        let refs = by_commit(vec![
+            label("main", RefKind::Branch, false),
+            label("topic", RefKind::Branch, true),
+        ]);
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.ask_delete();
+
+        panel.show_refs(&refs);
 
         assert_eq!(panel.confirming_delete(), None);
     }

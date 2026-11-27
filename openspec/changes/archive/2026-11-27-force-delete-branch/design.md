@@ -16,7 +16,7 @@
 `delete(location, name, DeleteMode)` with `DeleteMode::{IfMerged, Force}`. The mode picks `-d` or `-D`. The `--` and the name stay the same (principle: model-the-domain, one rule in one place). A `bool` was rejected: a call `delete(.., true)` does not say what it does.
 
 ### D2. The prompt is state: name and mode
-`DeletePrompt { name, mode }` replaces the bare name. `ask_delete` creates `IfMerged`. After a failed `IfMerged` delete, the panel moves the same prompt to `Force`, only when the failed branch is still the selected one. A selection change, new refs, and `Cancel` clear it, as before (principle: type-system-discipline, there is no "force" flag outside a prompt).
+`DeletePrompt { name, mode }` replaces the bare name. `ask_delete` creates `IfMerged`. After a failed `IfMerged` delete, the panel moves the same prompt to `Force`, only when the failed branch is still the selected one. A selection change, new refs, and `Cancel` clear it, as before (principle: type-system-discipline, there is no "force" flag outside a prompt). New refs from a history reload clear the prompt only when the branch can no longer be deleted (gone, or now current). A reload that was already running must not cancel a valid question. Found in review.
 
 ### D3. Do not parse the error text
 The error text of Git depends on the language of the user. The app offers `Force delete` after any failure of `-d`. If `-D` fails too, the git error shows and the question ends. This costs one extra click in rare cases and removes a fragile text match (principle: boundary-discipline).
