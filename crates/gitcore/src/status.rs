@@ -78,6 +78,10 @@ impl WorkingFile {
         paths
     }
 
+    pub fn can_restore(&self) -> bool {
+        self.can_discard() && self.diff != WorktreeDiff::Untracked
+    }
+
     pub fn can_discard(&self) -> bool {
         matches!(
             (self.diff, self.state),

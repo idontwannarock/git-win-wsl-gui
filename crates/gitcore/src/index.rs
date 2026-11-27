@@ -38,6 +38,15 @@ pub fn discard(location: &RepoLocation, file: &WorkingFile) -> Result<(), Comman
     location.run_checked(&args).map(drop)
 }
 
+pub fn discard_all(location: &RepoLocation, files: &[WorkingFile]) -> Result<(), CommandError> {
+    let paths: Vec<&str> = files
+        .iter()
+        .filter(|file| file.can_restore())
+        .map(|file| file.path.as_str())
+        .collect();
+    run_on_paths(location, "restore", &paths)
+}
+
 pub fn stage_all(location: &RepoLocation) -> Result<(), CommandError> {
     location.run_checked(&["add", "-A"]).map(drop)
 }
@@ -504,6 +513,88 @@ mod tests {
         assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
         assert_eq!(content(&repo, "a.txt"), "v2\n");
         assert_eq!(staged(&repo), ["a.txt"]);
+    }
+
+    fn all_unstaged(repo: &TempRepo) -> Vec<WorkingFile> {
+        repo.status().groups().unstaged
+    }
+
+    #[test]
+    fn discarding_all_restores_modified_and_deleted_files_and_keeps_untracked_files() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "a\n");
+        repo.write("b.txt", "b\n");
+        repo.write("-dash.txt", "dash\n");
+        repo.commit("first");
+        repo.write("a.txt", "edited\n");
+        repo.write("-dash.txt", "edited\n");
+        std::fs::remove_file(repo.dir.path().join("b.txt")).unwrap();
+        repo.write("fresh.txt", "new\n");
+
+        discard_all(&repo.location, &all_unstaged(&repo)).unwrap();
+
+        assert_eq!(content(&repo, "a.txt"), "a\n");
+        assert_eq!(content(&repo, "b.txt"), "b\n");
+        assert_eq!(content(&repo, "-dash.txt"), "dash\n");
+        assert_eq!(content(&repo, "fresh.txt"), "new\n");
+        assert_eq!(unstaged(&repo), ["fresh.txt"]);
+    }
+
+    #[test]
+    fn discarding_all_keeps_staged_content() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "v1\n");
+        repo.write("b.txt", "b1\n");
+        repo.commit("first");
+        repo.write("a.txt", "v2\n");
+        repo.git(&["add", "a.txt"]);
+        repo.write("a.txt", "v3\n");
+        repo.write("b.txt", "b2\n");
+        repo.git(&["add", "b.txt"]);
+
+        discard_all(&repo.location, &all_unstaged(&repo)).unwrap();
+
+        assert_eq!(content(&repo, "a.txt"), "v2\n");
+        assert_eq!(content(&repo, "b.txt"), "b2\n");
+        assert_eq!(staged(&repo), ["a.txt", "b.txt"]);
+        assert!(unstaged(&repo).is_empty());
+    }
+
+    #[test]
+    fn discarding_all_leaves_a_conflicted_file_and_restores_the_others() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "base\n");
+        repo.write("other.txt", "other\n");
+        repo.commit("first");
+        repo.git(&["switch", "-q", "-c", "topic"]);
+        repo.write("a.txt", "topic\n");
+        repo.commit("topic");
+        repo.git(&["switch", "-q", "main"]);
+        repo.write("a.txt", "main\n");
+        repo.commit("main");
+        let merge = repo.location.run(&["merge", "topic"]).unwrap();
+        assert!(!merge.success());
+        repo.write("other.txt", "edited\n");
+        let files = all_unstaged(&repo);
+        assert!(files.iter().any(|file| file.path == "a.txt" && !file.can_discard()));
+
+        discard_all(&repo.location, &files).unwrap();
+
+        assert_eq!(content(&repo, "other.txt"), "other\n");
+        assert!(content(&repo, "a.txt").contains("<<<<<<<"));
+    }
+
+    #[test]
+    fn discarding_all_with_nothing_to_discard_changes_nothing() {
+        let repo = TempRepo::new();
+        repo.write("a.txt", "a\n");
+        repo.commit("first");
+        repo.write("fresh.txt", "new\n");
+
+        discard_all(&repo.location, &[]).unwrap();
+        discard_all(&repo.location, &all_unstaged(&repo)).unwrap();
+
+        assert_eq!(unstaged(&repo), ["fresh.txt"]);
     }
 
     #[test]
