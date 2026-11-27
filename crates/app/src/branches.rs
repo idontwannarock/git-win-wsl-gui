@@ -12,6 +12,7 @@ use gpui::{
 use gpui_component::ActiveTheme;
 use gpui_component::Disableable;
 use gpui_component::button::Button;
+use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::label::Label;
 use std::collections::HashMap;
@@ -64,21 +65,26 @@ impl BranchPanel {
     }
 
     fn ask_delete(&mut self) {
-        self.prompt_delete(DeleteMode::IfMerged);
-    }
-
-    fn offer_force(&mut self, name: &str) {
-        if self.selected.as_ref().is_some_and(|(_, selected)| selected == name) {
-            self.prompt_delete(DeleteMode::Force);
+        if self.can_delete() {
+            self.confirming_delete = self.selected.as_ref().map(|(_, name)| DeletePrompt {
+                name: name.clone(),
+                mode: DeleteMode::IfMerged,
+            });
         }
     }
 
-    fn prompt_delete(&mut self, mode: DeleteMode) {
-        if self.can_delete() {
-            self.confirming_delete = self
-                .selected
-                .as_ref()
-                .map(|(_, name)| DeletePrompt { name: name.clone(), mode });
+    fn ask_again(&mut self, name: &str) {
+        if self.selected.as_ref().is_some_and(|(_, selected)| selected == name) {
+            self.ask_delete();
+        }
+    }
+
+    fn toggle_force(&mut self) {
+        if let Some(prompt) = self.confirming_delete.as_mut() {
+            prompt.mode = match prompt.mode {
+                DeleteMode::IfMerged => DeleteMode::Force,
+                DeleteMode::Force => DeleteMode::IfMerged,
+            };
         }
     }
 
@@ -263,6 +269,13 @@ impl RepoView {
         }
     }
 
+    pub fn toggle_force(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut() {
+            graph.branches.toggle_force();
+            cx.notify();
+        }
+    }
+
     pub fn cancel_delete(&mut self, cx: &mut Context<Self>) {
         if let Some(graph) = self.graph_mut() {
             graph.branches.cancel_delete();
@@ -296,7 +309,7 @@ impl RepoView {
 
     fn finish_delete(&mut self, name: &str, mode: DeleteMode, result: Result<(), String>, cx: &mut Context<Self>) {
         if let (Err(_), DeleteMode::IfMerged, Some(graph)) = (&result, mode, self.graph_mut()) {
-            graph.branches.offer_force(name);
+            graph.branches.ask_again(name);
         }
         self.finish_branch_command(result, cx);
     }
@@ -434,20 +447,20 @@ pub fn branches_view(graph: &GraphState, cx: &mut Context<RepoView>) -> AnyEleme
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(Label::new(match prompt.mode {
-                    DeleteMode::IfMerged => format!("Delete {}?", prompt.name),
-                    DeleteMode::Force => format!("Force delete {}?", prompt.name),
-                }))
+                .child(Label::new(format!("Delete {}?", prompt.name)))
+                .child(
+                    Checkbox::new("force-delete")
+                        .label("Force (delete even if not merged)")
+                        .checked(prompt.mode == DeleteMode::Force)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_force(cx))),
+                )
                 .child(
                     div()
                         .flex()
                         .gap_2()
                         .child(
                             Button::new("confirm-delete")
-                                .label(match prompt.mode {
-                                    DeleteMode::IfMerged => "Delete",
-                                    DeleteMode::Force => "Force delete",
-                                })
+                                .label("Delete")
                                 .disabled(busy)
                                 .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
                         )
@@ -597,34 +610,57 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_delete_moves_the_question_to_force_for_the_same_branch() {
+    fn the_box_flips_the_mode_of_the_question() {
         let mut panel = panel_with_selection(RefKind::Branch, "topic");
         panel.ask_delete();
 
-        panel.offer_force("topic");
-
+        panel.toggle_force();
         assert_eq!(panel.confirming_delete(), Some(&prompt("topic", DeleteMode::Force)));
+
+        panel.toggle_force();
+        assert_eq!(panel.confirming_delete(), Some(&prompt("topic", DeleteMode::IfMerged)));
     }
 
     #[test]
-    fn force_is_not_offered_for_a_branch_that_is_no_longer_selected() {
+    fn the_box_does_nothing_when_no_question_shows() {
         let mut panel = panel_with_selection(RefKind::Branch, "topic");
-        panel.ask_delete();
-        panel.select(RefKind::Branch, "other".to_owned());
 
-        panel.offer_force("topic");
+        panel.toggle_force();
 
         assert_eq!(panel.confirming_delete(), None);
     }
 
     #[test]
-    fn new_refs_keep_the_question_while_the_branch_can_still_be_deleted() {
+    fn a_refused_delete_asks_again_with_the_box_off_for_the_same_branch() {
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.ask_delete();
+        panel.toggle_force();
+
+        panel.ask_again("topic");
+
+        assert_eq!(panel.confirming_delete(), Some(&prompt("topic", DeleteMode::IfMerged)));
+    }
+
+    #[test]
+    fn a_refused_delete_does_not_ask_again_for_a_branch_that_is_no_longer_selected() {
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.ask_delete();
+        panel.select(RefKind::Branch, "other".to_owned());
+
+        panel.ask_again("topic");
+
+        assert_eq!(panel.confirming_delete(), None);
+    }
+
+    #[test]
+    fn new_refs_keep_the_question_and_the_box_while_the_branch_can_still_be_deleted() {
         let refs = by_commit(vec![
             label("main", RefKind::Branch, true),
             label("topic", RefKind::Branch, false),
         ]);
         let mut panel = panel_with_selection(RefKind::Branch, "topic");
-        panel.offer_force("topic");
+        panel.ask_delete();
+        panel.toggle_force();
 
         panel.show_refs(&refs);
 
@@ -646,13 +682,15 @@ mod tests {
     }
 
     #[test]
-    fn cancel_and_new_refs_end_the_force_question() {
+    fn cancel_and_new_refs_end_the_question_with_the_box_on() {
         let mut panel = panel_with_selection(RefKind::Branch, "topic");
-        panel.offer_force("topic");
+        panel.ask_delete();
+        panel.toggle_force();
         panel.cancel_delete();
         assert_eq!(panel.confirming_delete(), None);
 
-        panel.offer_force("topic");
+        panel.ask_delete();
+        panel.toggle_force();
         panel.show_refs(&HashMap::new());
         assert_eq!(panel.confirming_delete(), None);
     }

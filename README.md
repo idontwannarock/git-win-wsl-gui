@@ -86,7 +86,7 @@ The tab bar works with the mouse only. Keyboard shortcuts for tabs are not avail
 The branch panel is on the left of a repository.
 
 - **Create**: type a name in the field and press `Create` (or `Enter`). The new branch starts at the current commit, and the app checks it out. Changes in your work tree stay. Git decides which names are valid, and the app shows its message when it refuses one.
-- **Delete**: select a local branch that is not the current branch, press `Delete`, then press `Delete` again to confirm. The app runs `git branch -d`. Git refuses a branch that is not fully merged. The app then shows the message of Git and asks "Force delete <name>?". `Force delete` runs `git branch -D`, which drops the commits that no other branch holds.
+- **Delete**: select a local branch that is not the current branch, press `Delete`, then press `Delete` again to confirm. The confirmation has a box "Force (delete even if not merged)", off at the start. With the box off, the app runs `git branch -d`. Git refuses a branch that is not fully merged, and the app shows its message and keeps the confirmation open. With the box on, the app runs `git branch -D`, which drops the commits that no other branch holds. Delete removes only the local branch.
 - The app does not delete remote branches.
 
 ## Remote
