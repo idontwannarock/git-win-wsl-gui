@@ -32,7 +32,7 @@ Open work found while building `v1-core` (archived in `openspec/changes/archive/
 - [x] 8.28 Done in force-delete-branch: after `git branch -d` fails, the confirmation asks "Force delete <name>?" and runs `git branch -D`.
 - [x] 8.29 Done in create-branch-from: right-click a commit row or a branch row and choose `Create branch here`; the next `Create` starts there.
 - [ ] 8.30 Delete a remote branch (`git push origin --delete <name>`), and rename a branch. The remote delete gets its own box "Also delete the remote branch" in the delete confirmation. Git has no force mode for it.
-- [ ] 8.31 Discard all unstaged changes, and discard a hunk or a line. Today `Discard` works on one file.
+- [ ] 8.31 Discard a hunk or a line. Today `Discard` works on one file, and `Discard all changes` (right-click the Unstaged header, done in `discard-all`) restores every tracked file. `Discard all changes` skips untracked files on purpose. Removing all untracked files in bulk is not done.
 - [ ] 8.32 Undo a discard. Today a discard cannot be undone, and only the confirmation step guards it.
 - [ ] 8.33 Warn before an amend of a commit that is already pushed. Today the next push is refused and the app never forces a push.
 - [ ] 8.34 The confirmation of a discard (and of a branch delete) moves the lists when it appears. Reserve the space or show it in a fixed place. Same cause as 8.26.

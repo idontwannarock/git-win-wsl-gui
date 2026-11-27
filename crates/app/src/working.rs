@@ -3,7 +3,7 @@ use crate::repo_view::RepoView;
 use crate::keyboard::{ListNav, Step, list_region, stepped};
 use gitcore::diff::worktree_file_patch;
 use gitcore::exec::CommandError;
-use gitcore::index::{amend, commit, discard, last_message, stage, stage_all, unstage};
+use gitcore::index::{amend, commit, discard, discard_all, last_message, stage, stage_all, unstage};
 use gitcore::runner::RepoLocation;
 use gitcore::status::{
     Branch, ChangeKind, FileState, Groups, Status, StatusError, WorkingFile, read_status,
@@ -11,7 +11,7 @@ use gitcore::status::{
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement,
     KeyDownEvent, ParentElement, ScrollStrategy, StatefulInteractiveElement, Styled, Subscription,
-    Task, Window, div, px, uniform_list,
+    Div, Task, Window, div, px, uniform_list,
 };
 use gpui_component::ActiveTheme;
 use gpui_component::Disableable;
@@ -20,6 +20,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::diff::{Diff, DiffFile, DiffState};
 use gpui_component::input::{InputEvent, Textarea, TextareaState};
 use gpui_component::label::Label;
+use gpui_component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use std::ops::Range;
 
 const LIST_WIDTH: f32 = 320.0;
@@ -37,13 +38,30 @@ pub enum Mode {
     Changes,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum DiscardTarget {
+    File(String),
+    All,
+}
+
+
 #[derive(Default)]
-struct DiscardPrompt(Option<String>);
+struct DiscardPrompt(Option<DiscardTarget>);
+
+fn restorable(unstaged: &[WorkingFile]) -> usize {
+    unstaged.iter().filter(|file| file.can_restore()).count()
+}
 
 impl DiscardPrompt {
     fn ask(&mut self, file: Option<&WorkingFile>) {
         if let Some(file) = file.filter(|file| file.can_discard()) {
-            self.0 = Some(file.path.clone());
+            self.0 = Some(DiscardTarget::File(file.path.clone()));
+        }
+    }
+
+    fn ask_all(&mut self, unstaged: &[WorkingFile]) {
+        if restorable(unstaged) > 0 {
+            self.0 = Some(DiscardTarget::All);
         }
     }
 
@@ -51,14 +69,22 @@ impl DiscardPrompt {
         self.0 = None;
     }
 
-    fn path(&self) -> Option<&str> {
-        self.0.as_deref()
+    fn take(&mut self) -> Option<DiscardTarget> {
+        self.0.take()
+    }
+
+    fn target(&self) -> Option<&DiscardTarget> {
+        self.0.as_ref()
     }
 
     fn keep_if_discardable(&mut self, unstaged: &[WorkingFile]) {
-        let still_there = self.path().is_some_and(|path| {
-            unstaged.iter().any(|file| file.path == path && file.can_discard())
-        });
+        let still_there = match &self.0 {
+            Some(DiscardTarget::File(path)) => {
+                unstaged.iter().any(|file| file.path == *path && file.can_discard())
+            }
+            Some(DiscardTarget::All) => restorable(unstaged) > 0,
+            None => false,
+        };
         if !still_there {
             self.cancel();
         }
@@ -371,16 +397,30 @@ impl RepoView {
         if working.busy() {
             return;
         }
-        let file = working
-            .discard
-            .path()
-            .and_then(|path| working.list(Side::Unstaged).iter().find(|file| file.path == path))
-            .cloned();
-        working.discard.cancel();
-        let Some(file) = file else {
+        let target = working.discard.take();
+        let files = working.list(Side::Unstaged);
+        match target {
+            Some(DiscardTarget::File(path)) => {
+                let file = files.iter().find(|file| file.path == path).cloned();
+                if let Some(file) = file {
+                    self.run_index_action(move |location| discard(location, &file), cx);
+                }
+            }
+            Some(DiscardTarget::All) => {
+                let files = files.to_vec();
+                self.run_index_action(move |location| discard_all(location, &files), cx);
+            }
+            None => {}
+        }
+    }
+
+    pub fn ask_discard_all(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
             return;
         };
-        self.run_index_action(move |location| discard(location, &file), cx);
+        let unstaged = graph.working.list(Side::Unstaged).to_vec();
+        graph.working.discard.ask_all(&unstaged);
+        cx.notify();
     }
 
     pub fn refresh_working(&mut self, cx: &mut Context<Self>) {
@@ -608,14 +648,43 @@ impl RepoView {
     }
 }
 
-fn discard_prompt(path: &str, busy: bool, cx: &mut Context<RepoView>) -> impl IntoElement {
-    let (name, _) = name_and_folder(path, None);
+fn discard_question(target: &DiscardTarget, unstaged: &[WorkingFile]) -> String {
+    match target {
+        DiscardTarget::File(path) => {
+            let (name, _) = name_and_folder(path, None);
+            format!("Discard changes to {name}?")
+        }
+        DiscardTarget::All => {
+            let count = restorable(unstaged);
+            let noun = if count == 1 { "file" } else { "files" };
+            format!("Discard changes to {count} {noun}?")
+        }
+    }
+}
+
+fn discard_all_menu(
+    view: Entity<RepoView>,
+    enabled: bool,
+) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+    move |menu, _, _| {
+        let view = view.clone();
+        menu.item(
+            PopupMenuItem::new("Discard all changes")
+                .disabled(!enabled)
+                .on_click(move |_, _, cx| {
+                    view.update(cx, |this, cx| this.ask_discard_all(cx));
+                }),
+        )
+    }
+}
+
+fn discard_prompt(question: String, busy: bool, cx: &mut Context<RepoView>) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
         .flex_none()
         .gap_1()
-        .child(Label::new(format!("Discard changes to {name}?")))
+        .child(Label::new(question))
         .child(
             div()
                 .flex()
@@ -635,7 +704,7 @@ fn discard_prompt(path: &str, busy: bool, cx: &mut Context<RepoView>) -> impl In
         )
 }
 
-fn group_header(title: String, action: Option<AnyElement>) -> impl IntoElement {
+fn group_header(title: String, action: Option<AnyElement>) -> Div {
     div()
         .flex()
         .flex_none()
@@ -754,17 +823,26 @@ pub fn changes_view(working: &Working, cx: &mut Context<RepoView>) -> AnyElement
                 .min_h_0()
                 .child(group_list(Side::Staged, groups.staged.len(), working.nav(Side::Staged), cx)),
         )
-        .child(group_header(
-            format!("Unstaged ({})", groups.unstaged.len()),
-            Some(unstaged_actions),
-        ))
+        .child(
+            group_header(format!("Unstaged ({})", groups.unstaged.len()), Some(unstaged_actions))
+                .id("unstaged-header")
+                .context_menu(discard_all_menu(
+                    cx.entity(),
+                    !busy && restorable(&groups.unstaged) > 0,
+                )),
+        )
         .child(
             div()
                 .flex_1()
                 .min_h_0()
                 .child(group_list(Side::Unstaged, groups.unstaged.len(), working.nav(Side::Unstaged), cx)),
         )
-        .children(working.discard.path().map(|path| discard_prompt(path, busy, cx)))
+        .children(
+            working
+                .discard
+                .target()
+                .map(|target| discard_prompt(discard_question(target, &groups.unstaged), busy, cx)),
+        )
         .child(commit_box);
     div()
         .flex()
@@ -844,17 +922,17 @@ mod tests {
     fn a_discard_is_asked_only_for_a_file_that_can_be_discarded() {
         let mut prompt = DiscardPrompt::default();
         prompt.ask(None);
-        assert_eq!(prompt.path(), None);
+        assert_eq!(prompt.target(), None);
 
         let staged = file("a.txt", FileState::Changed(ChangeKind::Modified), WorktreeDiff::Staged);
         prompt.ask(Some(&staged));
-        assert_eq!(prompt.path(), None);
+        assert_eq!(prompt.target(), None);
 
         prompt.ask(Some(&modified()));
-        assert_eq!(prompt.path(), Some("a.txt"));
+        assert_eq!(prompt.target(), Some(&DiscardTarget::File("a.txt".to_owned())));
 
         prompt.cancel();
-        assert_eq!(prompt.path(), None);
+        assert_eq!(prompt.target(), None);
     }
 
     #[test]
@@ -863,7 +941,7 @@ mod tests {
         prompt.ask(Some(&modified()));
 
         prompt.keep_if_discardable(&[modified()]);
-        assert_eq!(prompt.path(), Some("a.txt"));
+        assert_eq!(prompt.target(), Some(&DiscardTarget::File("a.txt".to_owned())));
 
         let conflicted = file(
             "a.txt",
@@ -871,10 +949,72 @@ mod tests {
             WorktreeDiff::Unstaged,
         );
         prompt.keep_if_discardable(&[conflicted]);
-        assert_eq!(prompt.path(), None);
+        assert_eq!(prompt.target(), None);
 
         prompt.ask(Some(&modified()));
         prompt.keep_if_discardable(&[]);
-        assert_eq!(prompt.path(), None);
+        assert_eq!(prompt.target(), None);
+    }
+
+    fn untracked() -> WorkingFile {
+        file("new.txt", FileState::Untracked, WorktreeDiff::Untracked)
+    }
+
+    #[test]
+    fn discard_all_is_asked_only_when_a_tracked_file_can_be_restored() {
+        let mut prompt = DiscardPrompt::default();
+
+        prompt.ask_all(&[]);
+        assert_eq!(prompt.target(), None);
+
+        prompt.ask_all(&[untracked()]);
+        assert_eq!(prompt.target(), None);
+
+        prompt.ask_all(&[untracked(), modified()]);
+        assert_eq!(prompt.target(), Some(&DiscardTarget::All));
+
+        prompt.cancel();
+        assert_eq!(prompt.target(), None);
+    }
+
+    #[test]
+    fn a_discard_all_question_ends_when_no_tracked_file_can_be_restored_any_more() {
+        let mut prompt = DiscardPrompt::default();
+        prompt.ask_all(&[modified()]);
+
+        prompt.keep_if_discardable(&[modified(), untracked()]);
+        assert_eq!(prompt.target(), Some(&DiscardTarget::All));
+
+        prompt.keep_if_discardable(&[untracked()]);
+        assert_eq!(prompt.target(), None);
+    }
+
+    #[test]
+    fn the_newest_discard_question_replaces_the_older_one() {
+        let mut prompt = DiscardPrompt::default();
+        prompt.ask(Some(&modified()));
+        prompt.ask_all(&[modified()]);
+        assert_eq!(prompt.target(), Some(&DiscardTarget::All));
+
+        prompt.ask(Some(&modified()));
+        assert_eq!(prompt.target(), Some(&DiscardTarget::File("a.txt".to_owned())));
+    }
+
+    #[test]
+    fn the_discard_all_question_counts_only_files_that_can_be_restored() {
+        let other = file("b.txt", FileState::Changed(ChangeKind::Deleted), WorktreeDiff::Unstaged);
+
+        assert_eq!(
+            discard_question(&DiscardTarget::All, &[modified(), untracked()]),
+            "Discard changes to 1 file?"
+        );
+        assert_eq!(
+            discard_question(&DiscardTarget::All, &[modified(), other, untracked()]),
+            "Discard changes to 2 files?"
+        );
+        assert_eq!(
+            discard_question(&DiscardTarget::File("dir/a.txt".to_owned()), &[]),
+            "Discard changes to a.txt?"
+        );
     }
 }
