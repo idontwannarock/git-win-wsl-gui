@@ -13,8 +13,23 @@ pub fn create(location: &RepoLocation, name: &str) -> Result<(), CommandError> {
     location.run_checked(&["switch", "-c", name]).map(drop)
 }
 
-pub fn delete(location: &RepoLocation, name: &str) -> Result<(), CommandError> {
-    location.run_checked(&["branch", "-d", "--", name]).map(drop)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeleteMode {
+    IfMerged,
+    Force,
+}
+
+impl DeleteMode {
+    fn flag(self) -> &'static str {
+        match self {
+            DeleteMode::IfMerged => "-d",
+            DeleteMode::Force => "-D",
+        }
+    }
+}
+
+pub fn delete(location: &RepoLocation, name: &str, mode: DeleteMode) -> Result<(), CommandError> {
+    location.run_checked(&["branch", mode.flag(), "--", name]).map(drop)
 }
 
 #[cfg(test)]
@@ -99,7 +114,7 @@ mod tests {
         let repo = repo_with_one_commit();
         repo.git(&["branch", "topic"]);
 
-        delete(&repo.location, "topic").unwrap();
+        delete(&repo.location, "topic", DeleteMode::IfMerged).unwrap();
 
         assert_eq!(branch_names(&repo.location), ["main"]);
     }
@@ -112,17 +127,40 @@ mod tests {
         repo.commit("two");
         repo.git(&["switch", "-q", "main"]);
 
-        let error = delete(&repo.location, "topic").unwrap_err();
+        let error = delete(&repo.location, "topic", DeleteMode::IfMerged).unwrap_err();
 
         assert!(error.to_string().contains("not fully merged"), "{error}");
         assert_eq!(branch_names(&repo.location), ["main", "topic"]);
     }
 
     #[test]
+    fn a_forced_delete_removes_an_unmerged_branch() {
+        let repo = repo_with_one_commit();
+        repo.git(&["switch", "-q", "-c", "topic"]);
+        repo.write("b.txt", "b\n");
+        repo.commit("two");
+        repo.git(&["switch", "-q", "main"]);
+
+        delete(&repo.location, "topic", DeleteMode::Force).unwrap();
+
+        assert_eq!(branch_names(&repo.location), ["main"]);
+    }
+
+    #[test]
+    fn a_forced_delete_of_the_current_branch_reports_the_git_error_and_keeps_it() {
+        let repo = repo_with_one_commit();
+
+        let error = delete(&repo.location, "main", DeleteMode::Force).unwrap_err();
+
+        assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
+        assert_eq!(branch_names(&repo.location), ["main"]);
+    }
+
+    #[test]
     fn deleting_the_current_branch_reports_the_git_error_and_keeps_it() {
         let repo = repo_with_one_commit();
 
-        let error = delete(&repo.location, "main").unwrap_err();
+        let error = delete(&repo.location, "main", DeleteMode::IfMerged).unwrap_err();
 
         assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
         assert_eq!(branch_names(&repo.location), ["main"]);
@@ -132,7 +170,7 @@ mod tests {
     fn deleting_a_missing_branch_reports_the_git_error() {
         let repo = repo_with_one_commit();
 
-        let error = delete(&repo.location, "nope").unwrap_err();
+        let error = delete(&repo.location, "nope", DeleteMode::IfMerged).unwrap_err();
 
         assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
     }
@@ -142,7 +180,7 @@ mod tests {
         let repo = repo_with_one_commit();
         repo.git(&["update-ref", "refs/heads/-Cmain", "HEAD"]);
 
-        delete(&repo.location, "-Cmain").unwrap();
+        delete(&repo.location, "-Cmain", DeleteMode::IfMerged).unwrap();
 
         assert_eq!(branch_names(&repo.location), ["main"]);
     }
@@ -281,7 +319,7 @@ mod tests {
         create(&location, "topic").unwrap();
         assert_eq!(current_branch(&location), "topic");
         checkout_local(&location, "main").unwrap();
-        delete(&location, "topic").unwrap();
+        delete(&location, "topic", DeleteMode::Force).unwrap();
 
         assert_eq!(branch_names(&location), ["main"]);
     }
