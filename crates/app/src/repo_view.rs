@@ -1,11 +1,12 @@
 use crate::bench::ScrollBench;
-use crate::branches::branches_view;
+use crate::branches::{branches_view, create_branch_here};
 use crate::keyboard::{Step, list_region, stepped};
 use crate::sync::{sync_buttons, sync_note_line};
 use crate::theme::{MONO, chip_colors};
 use crate::detail::{Detail, Load, detail_view, file_rows};
 use crate::graph::{CommitRow, GraphState, ROW_HEIGHT, lane_cell};
 use chrono::{DateTime, Local};
+use gitcore::branch::StartPoint;
 use gitcore::changes::{ChangesError, FileChange, commit_changes};
 use gitcore::diff::commit_file_patch;
 use gitcore::refs::RefLabel;
@@ -22,6 +23,7 @@ use gpui_component::Selectable;
 use gpui_component::button::Button;
 use gpui_component::diff::{DiffFile, DiffState};
 use gpui_component::label::Label;
+use gpui_component::menu::ContextMenuExt;
 use std::ops::Range;
 use std::time::Instant;
 
@@ -197,6 +199,11 @@ impl RepoView {
                 commit_row(row, labels.unwrap_or_default(), background)
                     .id(("commit", index))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_commit(index, cx)))
+                    .context_menu(create_branch_here(
+                        cx.entity(),
+                        StartPoint::Commit(row.commit.id.clone()),
+                        start_label(&row.commit),
+                    ))
                     .into_any_element()
             })
             .collect();
@@ -470,9 +477,17 @@ fn describe(graph: &GraphState) -> String {
     }
 }
 
+fn short_id(commit: &gitcore::log::Commit) -> String {
+    commit.id.as_str().chars().take(SHORT_ID_LENGTH).collect()
+}
+
+fn start_label(commit: &gitcore::log::Commit) -> String {
+    format!("{} {}", short_id(commit), commit.subject)
+}
+
 fn commit_row(row: &CommitRow, labels: &[RefLabel], background: Option<Hsla>) -> Div {
     let commit = &row.commit;
-    let short_id: String = commit.id.as_str().chars().take(SHORT_ID_LENGTH).collect();
+    let short_id = short_id(commit);
     div()
         .w_full()
         .h(px(ROW_HEIGHT))

@@ -1,0 +1,46 @@
+## MODIFIED Requirements
+
+### Requirement: Create branch
+The system SHALL let the user create a local branch from a name typed in the branch panel. The new branch SHALL start at the start point that the user chose, or at the current commit when none is chosen, and SHALL be checked out. The user SHALL choose a start point with the item `Create branch here` in the right-click menu of a commit row or of a branch row. The system SHALL NOT create a branch when the name is empty, or when Git refuses the name or the start point.
+
+#### Scenario: Create
+- **WHEN** the user types `topic` and presses `Create`
+- **THEN** branch `topic` exists at the current commit, HEAD is on `topic`, the name field is empty, and the graph, branch list, and status update
+
+#### Scenario: Work-tree changes stay
+- **WHEN** the work tree has changes and the user creates a branch
+- **THEN** the changes are still in the work tree on the new branch
+
+#### Scenario: Empty name
+- **WHEN** the name field is empty or holds only spaces
+- **THEN** `Create` is disabled
+
+#### Scenario: Create fails
+- **WHEN** Git refuses the name (the branch exists, or the name is not valid)
+- **THEN** the system shows the git error text, no branch is created, and HEAD does not change
+
+#### Scenario: Name that looks like an option
+- **WHEN** the user types `-x`
+- **THEN** the system shows an error and runs no branch command with that name as an option
+
+#### Scenario: Start at a commit
+- **WHEN** the user right-clicks a commit row, chooses `Create branch here`, types `topic`, and presses `Create`
+- **THEN** the branch panel showed "Start: `<short commit id>`" before the press, branch `topic` exists at that commit, and HEAD is on `topic`
+
+#### Scenario: Start at a branch
+- **WHEN** the user right-clicks a local or remote branch row, chooses `Create branch here`, types `topic`, and presses `Create`
+- **THEN** branch `topic` exists at the commit of that branch, and HEAD is on `topic`
+
+#### Scenario: Clear the start point
+- **WHEN** a start point is set and the user presses its clear button
+- **THEN** the "Start:" line disappears and `Create` starts at the current commit
+
+#### Scenario: Start point after create
+- **WHEN** a create with a start point succeeds
+- **THEN** the "Start:" line disappears
+- **WHEN** a create with a start point fails
+- **THEN** the "Start:" line stays
+
+#### Scenario: Branch name that looks like an option
+- **WHEN** the user chooses `Create branch here` on a branch whose name begins with `-`
+- **THEN** the new branch starts at that branch, and Git reads the name as a branch and not as an option

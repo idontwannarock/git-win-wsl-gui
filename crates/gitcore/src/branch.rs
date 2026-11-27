@@ -1,4 +1,5 @@
 use crate::exec::CommandError;
+use crate::log::Oid;
 use crate::runner::RepoLocation;
 
 pub fn checkout_local(location: &RepoLocation, branch: &str) -> Result<(), CommandError> {
@@ -9,8 +10,32 @@ pub fn checkout_remote(location: &RepoLocation, remote_branch: &str) -> Result<(
     location.run_checked(&["switch", "--track", "--", remote_branch]).map(drop)
 }
 
-pub fn create(location: &RepoLocation, name: &str) -> Result<(), CommandError> {
-    location.run_checked(&["switch", "-c", name]).map(drop)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartPoint {
+    Commit(Oid),
+    Local(String),
+    Remote(String),
+}
+
+impl StartPoint {
+    fn revision(&self) -> String {
+        match self {
+            StartPoint::Commit(oid) => oid.as_str().to_owned(),
+            StartPoint::Local(name) => format!("refs/heads/{name}"),
+            StartPoint::Remote(name) => format!("refs/remotes/{name}"),
+        }
+    }
+}
+
+pub fn create(
+    location: &RepoLocation,
+    name: &str,
+    start: Option<&StartPoint>,
+) -> Result<(), CommandError> {
+    let revision = start.map(StartPoint::revision);
+    let mut args = vec!["switch", "-c", name];
+    args.extend(revision.as_deref());
+    location.run_checked(&args).map(drop)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,7 +91,7 @@ mod tests {
         let repo = repo_with_one_commit();
         let head = repo.location.run_checked(&["rev-parse", "HEAD"]).unwrap();
 
-        create(&repo.location, "topic").unwrap();
+        create(&repo.location, "topic", None).unwrap();
 
         assert_eq!(current_branch(&repo.location), "topic");
         assert_eq!(branch_names(&repo.location), ["main", "topic"]);
@@ -74,12 +99,84 @@ mod tests {
         assert_eq!(head, topic);
     }
 
+    fn head_oid(location: &RepoLocation, rev: &str) -> Oid {
+        let out = location.run_checked(&["rev-parse", rev]).unwrap();
+        Oid::parse(String::from_utf8_lossy(&out).trim()).unwrap()
+    }
+
+    fn repo_with_two_commits() -> TempRepo {
+        let repo = repo_with_one_commit();
+        repo.write("b.txt", "b\n");
+        repo.commit("two");
+        repo
+    }
+
+    #[test]
+    fn creating_a_branch_at_a_commit_checks_it_out_there() {
+        let repo = repo_with_two_commits();
+        let first = head_oid(&repo.location, "HEAD~1");
+
+        create(&repo.location, "topic", Some(&StartPoint::Commit(first.clone()))).unwrap();
+
+        assert_eq!(current_branch(&repo.location), "topic");
+        assert_eq!(head_oid(&repo.location, "topic"), first);
+    }
+
+    #[test]
+    fn creating_a_branch_at_a_local_branch_starts_at_its_commit() {
+        let repo = repo_with_one_commit();
+        repo.git(&["branch", "other"]);
+        repo.write("b.txt", "b\n");
+        repo.commit("two");
+
+        create(&repo.location, "topic", Some(&StartPoint::Local("other".to_owned()))).unwrap();
+
+        assert_eq!(current_branch(&repo.location), "topic");
+        assert_eq!(head_oid(&repo.location, "topic"), head_oid(&repo.location, "other"));
+        assert_ne!(head_oid(&repo.location, "topic"), head_oid(&repo.location, "main"));
+    }
+
+    #[test]
+    fn creating_a_branch_at_a_remote_branch_starts_at_its_commit() {
+        let (_origin, local) = clone_with_remote_branch();
+
+        create(&local.location, "topic", Some(&StartPoint::Remote("origin/feature".to_owned()))).unwrap();
+
+        assert_eq!(current_branch(&local.location), "topic");
+        assert_eq!(head_oid(&local.location, "topic"), head_oid(&local.location, "origin/feature"));
+        let upstream = local.location.run_checked(&["rev-parse", "--abbrev-ref", "topic@{upstream}"]).unwrap();
+        assert_eq!(String::from_utf8_lossy(&upstream).trim(), "origin/feature");
+    }
+
+    #[test]
+    fn a_start_branch_named_like_an_option_is_read_as_a_branch() {
+        let repo = repo_with_two_commits();
+        let first = head_oid(&repo.location, "HEAD~1");
+        repo.git(&["update-ref", "refs/heads/-Cmain", first.as_str()]);
+
+        create(&repo.location, "topic", Some(&StartPoint::Local("-Cmain".to_owned()))).unwrap();
+
+        assert_eq!(head_oid(&repo.location, "topic"), first);
+        assert_eq!(current_branch(&repo.location), "topic");
+    }
+
+    #[test]
+    fn a_missing_start_branch_reports_the_git_error_and_changes_nothing() {
+        let repo = repo_with_one_commit();
+
+        let error = create(&repo.location, "topic", Some(&StartPoint::Local("nope".to_owned()))).unwrap_err();
+
+        assert!(matches!(error, CommandError::Failed(_)), "{error:?}");
+        assert_eq!(branch_names(&repo.location), ["main"]);
+        assert_eq!(current_branch(&repo.location), "main");
+    }
+
     #[test]
     fn creating_a_branch_keeps_the_changes_of_the_work_tree() {
         let repo = repo_with_one_commit();
         repo.write("a.txt", "local edit\n");
 
-        create(&repo.location, "topic").unwrap();
+        create(&repo.location, "topic", None).unwrap();
 
         let content = std::fs::read_to_string(repo.dir.path().join("a.txt")).unwrap();
         assert_eq!(content, "local edit\n");
@@ -90,7 +187,7 @@ mod tests {
         let repo = repo_with_one_commit();
         repo.git(&["branch", "topic"]);
 
-        let error = create(&repo.location, "topic").unwrap_err();
+        let error = create(&repo.location, "topic", None).unwrap_err();
 
         assert!(error.to_string().contains("already exists"), "{error}");
         assert_eq!(current_branch(&repo.location), "main");
@@ -101,7 +198,7 @@ mod tests {
         let repo = repo_with_one_commit();
 
         for name in ["has space", "a..b", "-x", "-Cmain", ""] {
-            let error = create(&repo.location, name).unwrap_err();
+            let error = create(&repo.location, name, None).unwrap_err();
             assert!(matches!(error, CommandError::Failed(_)), "{name}: {error:?}");
         }
 
@@ -316,10 +413,17 @@ mod tests {
             location.run_checked(args).unwrap();
         }
 
-        create(&location, "topic").unwrap();
+        create(&location, "topic", None).unwrap();
         assert_eq!(current_branch(&location), "topic");
         checkout_local(&location, "main").unwrap();
         delete(&location, "topic", DeleteMode::Force).unwrap();
+
+        let first = head_oid(&location, "main");
+        create(&location, "again", Some(&StartPoint::Commit(first.clone()))).unwrap();
+        assert_eq!(current_branch(&location), "again");
+        assert_eq!(head_oid(&location, "again"), first);
+        checkout_local(&location, "main").unwrap();
+        delete(&location, "again", DeleteMode::Force).unwrap();
 
         assert_eq!(branch_names(&location), ["main"]);
     }
