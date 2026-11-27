@@ -1,7 +1,7 @@
 use crate::graph::GraphState;
 use crate::repo_view::RepoView;
 use crate::keyboard::{Step, list_region, stepped};
-use gitcore::branch::{checkout_local, checkout_remote, create, delete};
+use gitcore::branch::{DeleteMode, checkout_local, checkout_remote, create, delete};
 use gitcore::log::Oid;
 use gitcore::refs::{RefKind, RefLabel};
 use gpui::{
@@ -26,11 +26,17 @@ pub enum Entry {
     Branch(RefLabel),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DeletePrompt {
+    name: String,
+    mode: DeleteMode,
+}
+
 pub struct BranchPanel {
     entries: Vec<Entry>,
     selected: Option<(RefKind, String)>,
     error: Option<String>,
-    confirming_delete: Option<String>,
+    confirming_delete: Option<DeletePrompt>,
     name: Option<Entity<InputState>>,
     name_subscription: Option<Subscription>,
 }
@@ -58,8 +64,21 @@ impl BranchPanel {
     }
 
     fn ask_delete(&mut self) {
+        self.prompt_delete(DeleteMode::IfMerged);
+    }
+
+    fn offer_force(&mut self, name: &str) {
+        if self.selected.as_ref().is_some_and(|(_, selected)| selected == name) {
+            self.prompt_delete(DeleteMode::Force);
+        }
+    }
+
+    fn prompt_delete(&mut self, mode: DeleteMode) {
         if self.can_delete() {
-            self.confirming_delete = self.selected.as_ref().map(|(_, name)| name.clone());
+            self.confirming_delete = self
+                .selected
+                .as_ref()
+                .map(|(_, name)| DeletePrompt { name: name.clone(), mode });
         }
     }
 
@@ -67,8 +86,8 @@ impl BranchPanel {
         self.confirming_delete = None;
     }
 
-    fn confirming_delete(&self) -> Option<&str> {
-        self.confirming_delete.as_deref()
+    fn confirming_delete(&self) -> Option<&DeletePrompt> {
+        self.confirming_delete.as_ref()
     }
 
     fn stepped_selection(&self, step: Step) -> Option<(usize, RefKind, String)> {
@@ -253,7 +272,7 @@ impl RepoView {
         let Some(graph) = self.graph_mut() else {
             return;
         };
-        let Some(name) = graph.branches.confirming_delete().map(str::to_owned) else {
+        let Some(DeletePrompt { name, mode }) = graph.branches.confirming_delete().cloned() else {
             return;
         };
         if graph.working.busy() {
@@ -262,14 +281,22 @@ impl RepoView {
         graph.branches.cancel_delete();
         graph.branches.error = None;
         let location = graph.location.clone();
+        let deleted = name.clone();
         let task = cx.background_executor().spawn(async move {
-            delete(&location, &name).map_err(|error| error.to_string())
+            delete(&location, &deleted, mode).map_err(|error| error.to_string())
         });
         graph.working.action_task = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
-            this.update(cx, |this, cx| this.finish_branch_command(result, cx)).ok();
+            this.update(cx, |this, cx| this.finish_delete(&name, mode, result, cx)).ok();
         }));
         cx.notify();
+    }
+
+    fn finish_delete(&mut self, name: &str, mode: DeleteMode, result: Result<(), String>, cx: &mut Context<Self>) {
+        if let (Err(_), DeleteMode::IfMerged, Some(graph)) = (&result, mode, self.graph_mut()) {
+            graph.branches.offer_force(name);
+        }
+        self.finish_branch_command(result, cx);
     }
 
     fn finish_branch_command(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
@@ -401,18 +428,24 @@ pub fn branches_view(graph: &GraphState, cx: &mut Context<RepoView>) -> AnyEleme
                 .child(error)
         }))
         .child(match panel.confirming_delete() {
-            Some(name) => div()
+            Some(prompt) => div()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(Label::new(format!("Delete {name}?")))
+                .child(Label::new(match prompt.mode {
+                    DeleteMode::IfMerged => format!("Delete {}?", prompt.name),
+                    DeleteMode::Force => format!("Force delete {}?", prompt.name),
+                }))
                 .child(
                     div()
                         .flex()
                         .gap_2()
                         .child(
                             Button::new("confirm-delete")
-                                .label("Delete")
+                                .label(match prompt.mode {
+                                    DeleteMode::IfMerged => "Delete",
+                                    DeleteMode::Force => "Force delete",
+                                })
                                 .disabled(busy)
                                 .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
                         )
@@ -551,9 +584,46 @@ mod tests {
         assert_eq!(panel.confirming_delete(), None);
 
         panel.ask_delete();
-        assert_eq!(panel.confirming_delete(), Some("topic"));
+        assert_eq!(panel.confirming_delete(), Some(&prompt("topic", DeleteMode::IfMerged)));
 
         panel.select(RefKind::Branch, "other".to_owned());
+        assert_eq!(panel.confirming_delete(), None);
+    }
+
+    fn prompt(name: &str, mode: DeleteMode) -> DeletePrompt {
+        DeletePrompt { name: name.to_owned(), mode }
+    }
+
+    #[test]
+    fn a_refused_delete_moves_the_question_to_force_for_the_same_branch() {
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.ask_delete();
+
+        panel.offer_force("topic");
+
+        assert_eq!(panel.confirming_delete(), Some(&prompt("topic", DeleteMode::Force)));
+    }
+
+    #[test]
+    fn force_is_not_offered_for_a_branch_that_is_no_longer_selected() {
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.ask_delete();
+        panel.select(RefKind::Branch, "other".to_owned());
+
+        panel.offer_force("topic");
+
+        assert_eq!(panel.confirming_delete(), None);
+    }
+
+    #[test]
+    fn cancel_and_new_refs_end_the_force_question() {
+        let mut panel = panel_with_selection(RefKind::Branch, "topic");
+        panel.offer_force("topic");
+        panel.cancel_delete();
+        assert_eq!(panel.confirming_delete(), None);
+
+        panel.offer_force("topic");
+        panel.show_refs(&HashMap::new());
         assert_eq!(panel.confirming_delete(), None);
     }
 

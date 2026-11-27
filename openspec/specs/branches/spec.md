@@ -49,7 +49,7 @@ The system SHALL let the user create a local branch from a name typed in the bra
 - **THEN** the system shows an error and runs no branch command with that name as an option
 
 ### Requirement: Delete branch
-The system SHALL let the user delete a selected local branch that is not the current branch. The system SHALL ask for confirmation before it deletes. The system SHALL delete only a branch that Git considers fully merged.
+The system SHALL let the user delete a selected local branch that is not the current branch. The system SHALL ask for confirmation before it deletes. The system SHALL first delete only a branch that Git considers fully merged. When Git refuses, the system SHALL offer a second confirmation to force the delete.
 
 #### Scenario: Delete a merged branch
 - **WHEN** the user selects a merged local branch, presses `Delete`, and confirms
@@ -65,5 +65,17 @@ The system SHALL let the user delete a selected local branch that is not the cur
 
 #### Scenario: Unmerged branch
 - **WHEN** the user confirms the delete of a branch that is not fully merged
-- **THEN** the system shows the git error text and the branch stays
+- **THEN** the system shows the git error text, the branch stays, and the confirmation asks "Force delete `<name>`?" with `Force delete` and `Cancel`
+
+#### Scenario: Force delete
+- **WHEN** the user presses `Force delete`
+- **THEN** the branch is gone from the list and from the repository
+
+#### Scenario: Cancel the force step
+- **WHEN** the user presses `Cancel` or selects another branch while the force question shows
+- **THEN** the branch stays and the question disappears
+
+#### Scenario: Force delete fails
+- **WHEN** Git refuses the force delete
+- **THEN** the system shows the git error text, the branch stays, and the question disappears
 
