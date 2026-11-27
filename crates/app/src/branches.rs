@@ -101,6 +101,12 @@ impl BranchPanel {
         self.start = Some(Start { point, label });
     }
 
+    fn clear_used_start(&mut self, used: Option<&Start>) {
+        if self.start.as_ref() == used {
+            self.start = None;
+        }
+    }
+
     fn clear_start(&mut self) {
         self.start = None;
     }
@@ -262,20 +268,21 @@ impl RepoView {
             return;
         }
         let location = graph.location.clone();
-        let start = graph.branches.start().map(|start| start.point.clone());
+        let used = graph.branches.start().cloned();
+        let start = used.as_ref().map(|start| start.point.clone());
         graph.branches.error = None;
         let task = cx.background_executor().spawn(async move {
             create(&location, &name, start.as_ref()).map_err(|error| error.to_string())
         });
         graph.working.action_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
-            this.update_in(cx, |this, window, cx| this.finish_create(result, window, cx))
+            this.update_in(cx, |this, window, cx| this.finish_create(used.as_ref(), result, window, cx))
                 .ok();
         }));
         cx.notify();
     }
 
-    fn finish_create(&mut self, result: Result<(), String>, window: &mut Window, cx: &mut Context<Self>) {
+    fn finish_create(&mut self, used: Option<&Start>, result: Result<(), String>, window: &mut Window, cx: &mut Context<Self>) {
         let created = result.is_ok();
         self.finish_branch_command(result, cx);
         let name = self.graph().and_then(|graph| graph.branches.name.clone());
@@ -283,7 +290,7 @@ impl RepoView {
             state.update(cx, |state, cx| state.set_value("", window, cx));
         }
         if let (true, Some(graph)) = (created, self.graph_mut()) {
-            graph.branches.clear_start();
+            graph.branches.clear_used_start(used);
         }
     }
 
@@ -826,6 +833,39 @@ mod tests {
         panel.set_start(local_start("one"), "one".to_owned());
 
         panel.set_start(local_start("two"), "two".to_owned());
+
+        assert_eq!(panel.start().map(|start| start.label.as_str()), Some("two"));
+    }
+
+    #[test]
+    fn clearing_the_used_start_point_keeps_a_newer_one() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("one"), "one".to_owned());
+        let used = panel.start().cloned();
+        panel.set_start(local_start("two"), "two".to_owned());
+
+        panel.clear_used_start(used.as_ref());
+
+        assert_eq!(panel.start().map(|start| start.label.as_str()), Some("two"));
+    }
+
+    #[test]
+    fn clearing_the_used_start_point_clears_it() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("one"), "one".to_owned());
+        let used = panel.start().cloned();
+
+        panel.clear_used_start(used.as_ref());
+
+        assert_eq!(panel.start(), None);
+    }
+
+    #[test]
+    fn clearing_when_no_start_was_used_keeps_a_start_set_meanwhile() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("two"), "two".to_owned());
+
+        panel.clear_used_start(None);
 
         assert_eq!(panel.start().map(|start| start.label.as_str()), Some("two"));
     }

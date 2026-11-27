@@ -66,6 +66,14 @@ The system SHALL let the user create a local branch from a name typed in the bra
 - **WHEN** a create with a start point fails
 - **THEN** the "Start:" line stays
 
+#### Scenario: Newer start point stays
+- **WHEN** the user chooses another start point while a create runs, and the create succeeds
+- **THEN** the new start point stays, because only the start point that the create used is cleared
+
+#### Scenario: No tracking
+- **WHEN** the user creates a branch at a remote branch
+- **THEN** the new branch has no upstream, and a later `Push` sets it with `--set-upstream origin HEAD`
+
 #### Scenario: Branch name that looks like an option
 - **WHEN** the user chooses `Create branch here` on a branch whose name begins with `-`
 - **THEN** the new branch starts at that branch, and Git reads the name as a branch and not as an option

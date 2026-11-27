@@ -33,7 +33,7 @@ pub fn create(
     start: Option<&StartPoint>,
 ) -> Result<(), CommandError> {
     let revision = start.map(StartPoint::revision);
-    let mut args = vec!["switch", "-c", name];
+    let mut args = vec!["switch", "-c", name, "--no-track"];
     args.extend(revision.as_deref());
     location.run_checked(&args).map(drop)
 }
@@ -137,15 +137,15 @@ mod tests {
     }
 
     #[test]
-    fn creating_a_branch_at_a_remote_branch_starts_at_its_commit() {
+    fn creating_a_branch_at_a_remote_branch_starts_at_its_commit_without_tracking_it() {
         let (_origin, local) = clone_with_remote_branch();
 
         create(&local.location, "topic", Some(&StartPoint::Remote("origin/feature".to_owned()))).unwrap();
 
         assert_eq!(current_branch(&local.location), "topic");
         assert_eq!(head_oid(&local.location, "topic"), head_oid(&local.location, "origin/feature"));
-        let upstream = local.location.run_checked(&["rev-parse", "--abbrev-ref", "topic@{upstream}"]).unwrap();
-        assert_eq!(String::from_utf8_lossy(&upstream).trim(), "origin/feature");
+        let upstream = local.location.run(&["rev-parse", "--abbrev-ref", "topic@{upstream}"]).unwrap();
+        assert!(!upstream.success(), "a new branch must not track the start branch");
     }
 
     #[test]

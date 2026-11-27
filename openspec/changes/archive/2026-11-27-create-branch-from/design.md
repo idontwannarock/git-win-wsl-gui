@@ -37,3 +37,9 @@ Both menus have the single item `Create branch here`. The menu handler needs the
 
 - `switch -c` checks out the new branch. With a start point far from HEAD, Git can refuse when the work tree has conflicting changes. Git's message shows and nothing changes.
 - The user can forget a set start point. The "Start:" line stays visible above the name field until it is cleared or used.
+
+### D6. No tracking (found in review)
+`create` adds `--no-track`. Without it, `git switch -c topic refs/remotes/origin/feature` sets `origin/feature` as the upstream of `topic`. The names differ, so `git push` (default `push.default=simple`) refuses, and the app does not take its `--set-upstream origin HEAD` path because an upstream exists. With `--no-track`, `Push` sets the upstream. Checked with real Git.
+
+### D7. Clear only the start point that the create used (found in review)
+`create_branch` keeps the `Start` it used. `finish_create` calls `clear_used_start(used)`: it clears the start point only when it equals the used one. A start point chosen while the create ran stays.
