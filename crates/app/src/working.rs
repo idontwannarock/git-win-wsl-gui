@@ -44,10 +44,6 @@ enum DiscardTarget {
     All,
 }
 
-enum DiscardAction {
-    File(WorkingFile),
-    All(Vec<WorkingFile>),
-}
 
 #[derive(Default)]
 struct DiscardPrompt(Option<DiscardTarget>);
@@ -71,6 +67,10 @@ impl DiscardPrompt {
 
     fn cancel(&mut self) {
         self.0 = None;
+    }
+
+    fn take(&mut self) -> Option<DiscardTarget> {
+        self.0.take()
     }
 
     fn target(&self) -> Option<&DiscardTarget> {
@@ -397,22 +397,17 @@ impl RepoView {
         if working.busy() {
             return;
         }
-        let unstaged = working.list(Side::Unstaged);
-        let action: Option<DiscardAction> = match working.discard.target() {
-            Some(DiscardTarget::File(path)) => unstaged
-                .iter()
-                .find(|file| file.path == *path)
-                .cloned()
-                .map(DiscardAction::File),
-            Some(DiscardTarget::All) => Some(DiscardAction::All(unstaged.to_vec())),
-            None => None,
-        };
-        working.discard.cancel();
-        match action {
-            Some(DiscardAction::File(file)) => {
-                self.run_index_action(move |location| discard(location, &file), cx);
+        let target = working.discard.take();
+        let files = working.list(Side::Unstaged);
+        match target {
+            Some(DiscardTarget::File(path)) => {
+                let file = files.iter().find(|file| file.path == path).cloned();
+                if let Some(file) = file {
+                    self.run_index_action(move |location| discard(location, &file), cx);
+                }
             }
-            Some(DiscardAction::All(files)) => {
+            Some(DiscardTarget::All) => {
+                let files = files.to_vec();
                 self.run_index_action(move |location| discard_all(location, &files), cx);
             }
             None => {}
