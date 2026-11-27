@@ -15,7 +15,7 @@ The UI uses [gpui](https://crates.io/crates/gpui-pre) and [gpui-component](https
 - Show the multi-branch commit graph. The app reads history in pages, so a repository with 100,000 commits opens fast.
 - Show a commit with its files and a unified diff.
 - Show the working tree: staged and unstaged files, with a live diff.
-- Stage and unstage a file. Stage all. Create a commit.
+- Stage and unstage a file. Stage all. Discard the changes of one file. Create a commit. Amend the last commit.
 - List local and remote branches. Check out, create, and delete a branch.
 - Fetch, pull, and push.
 
@@ -75,6 +75,11 @@ Each tab holds one repository. Press `+` to open a repository in a new tab. Clic
 - The app saves the open tabs in `%LOCALAPPDATA%\git-win-wsl-gui\tabs.txt` and opens them again at the next start. A tab reads its repository when you first show it.
 
 The tab bar works with the mouse only. Keyboard shortcuts for tabs are not available yet.
+
+## Changes
+
+- **Discard**: select a file in the Unstaged list, press `Discard`, then press `Discard` again to confirm. A changed or deleted file goes back to the content of the index (`git restore --worktree`). An untracked file is deleted from disk (`git clean -f`). Staged changes of the same file stay. A discard cannot be undone. `Discard` is grey for a staged file, a conflicted file, and a file you added with `git add -N`. The app has no "discard all".
+- **Amend**: press `Amend` next to the commit button. If the message box is empty, it shows the message of the last commit. Change the message, stage more files if you want, and press `Amend commit`. The staged files go into the last commit. With nothing staged, only the message changes. `Amend` is grey on a branch with no commit. If the last commit is already pushed, the next push is refused, because the history changed. The app never forces a push.
 
 ## Branches
 

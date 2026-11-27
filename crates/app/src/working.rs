@@ -3,7 +3,7 @@ use crate::repo_view::RepoView;
 use crate::keyboard::{ListNav, Step, list_region, stepped};
 use gitcore::diff::worktree_file_patch;
 use gitcore::exec::CommandError;
-use gitcore::index::{commit, stage, stage_all, unstage};
+use gitcore::index::{amend, commit, discard, last_message, stage, stage_all, unstage};
 use gitcore::runner::RepoLocation;
 use gitcore::status::{
     Branch, ChangeKind, FileState, Groups, Status, StatusError, WorkingFile, read_status,
@@ -15,6 +15,7 @@ use gpui::{
 };
 use gpui_component::ActiveTheme;
 use gpui_component::Disableable;
+use gpui_component::Selectable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::diff::{Diff, DiffFile, DiffState};
 use gpui_component::input::{InputEvent, Textarea, TextareaState};
@@ -36,6 +37,52 @@ pub enum Mode {
     Changes,
 }
 
+#[derive(Default)]
+struct DiscardPrompt(Option<String>);
+
+impl DiscardPrompt {
+    fn ask(&mut self, file: Option<&WorkingFile>) {
+        if let Some(file) = file.filter(|file| file.can_discard()) {
+            self.0 = Some(file.path.clone());
+        }
+    }
+
+    fn cancel(&mut self) {
+        self.0 = None;
+    }
+
+    fn path(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
+
+    fn keep_if_discardable(&mut self, unstaged: &[WorkingFile]) {
+        let still_there = self.path().is_some_and(|path| {
+            unstaged.iter().any(|file| file.path == path && file.can_discard())
+        });
+        if !still_there {
+            self.cancel();
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CommitState {
+    staged: bool,
+    amending: bool,
+    has_commit: bool,
+    busy: bool,
+}
+
+fn keeps_amending(before: Option<&Branch>, after: &Branch) -> bool {
+    let head = before.and_then(|branch| branch.oid.as_ref());
+    head.is_some() && head == after.oid.as_ref()
+}
+
+fn commit_ready(state: CommitState, message: &str) -> bool {
+    let has_content = if state.amending { state.has_commit } else { state.staged };
+    has_content && !state.busy && !message.trim().is_empty()
+}
+
 pub struct Working {
     pub groups: Option<Groups>,
     pub branch: Option<Branch>,
@@ -47,6 +94,8 @@ pub struct Working {
     unstaged_nav: ListNav,
     pub message: Option<Entity<TextareaState>>,
     pub commit_error: Option<String>,
+    discard: DiscardPrompt,
+    amending: bool,
     message_subscription: Option<Subscription>,
     status_task: Option<Task<()>>,
     patch_task: Option<Task<()>>,
@@ -66,6 +115,8 @@ impl Working {
             unstaged_nav: ListNav::new(cx),
             message: None,
             commit_error: None,
+            discard: DiscardPrompt::default(),
+            amending: false,
             message_subscription: None,
             status_task: None,
             patch_task: None,
@@ -84,8 +135,37 @@ impl Working {
     }
 
     fn can_commit(&self, message: &str) -> bool {
-        let has_staged = self.groups.as_ref().is_some_and(|groups| !groups.staged.is_empty());
-        has_staged && !message.trim().is_empty() && !self.busy()
+        let state = CommitState {
+            staged: self.groups.as_ref().is_some_and(|groups| !groups.staged.is_empty()),
+            amending: self.amending,
+            has_commit: self.has_commit(),
+            busy: self.busy(),
+        };
+        commit_ready(state, message)
+    }
+
+    fn has_commit(&self) -> bool {
+        self.branch.as_ref().is_some_and(|branch| branch.oid.is_some())
+    }
+
+    fn can_toggle_amend(&self) -> bool {
+        !self.busy() && (self.amending || self.has_commit())
+    }
+
+    fn select(&mut self, selected: Option<(Side, String)>) {
+        self.selected = selected;
+        self.discard.cancel();
+    }
+
+    fn selected_unstaged(&self) -> Option<&WorkingFile> {
+        match self.selected {
+            Some((Side::Unstaged, _)) => self.selected_file(),
+            _ => None,
+        }
+    }
+
+    fn can_discard_selected(&self) -> bool {
+        !self.busy() && self.selected_unstaged().is_some_and(WorkingFile::can_discard)
     }
 
     fn nav(&self, side: Side) -> &ListNav {
@@ -190,8 +270,14 @@ impl RepoView {
             return;
         }
         working.commit_error = None;
+        let amending = working.amending;
         let task = cx.background_executor().spawn(async move {
-            commit(&location, &message).map_err(|error| error.to_string())
+            let result = if amending {
+                amend(&location, &message)
+            } else {
+                commit(&location, &message)
+            };
+            result.map_err(|error| error.to_string())
         });
         working.action_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
@@ -208,6 +294,7 @@ impl RepoView {
         graph.working.action_task = None;
         match result {
             Ok(()) => {
+                graph.working.amending = false;
                 if let Some(state) = &graph.working.message {
                     state.update(cx, |state, cx| state.set_value("", window, cx));
                 }
@@ -217,6 +304,83 @@ impl RepoView {
         }
         self.refresh_working(cx);
         cx.notify();
+    }
+
+    pub fn toggle_amend(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let working = &mut graph.working;
+        if !working.can_toggle_amend() {
+            return;
+        }
+        working.amending = !working.amending;
+        let empty = working
+            .message
+            .as_ref()
+            .is_some_and(|state| state.read(cx).value().trim().is_empty());
+        if working.amending && empty {
+            let location = graph.location.clone();
+            let task = cx
+                .background_executor()
+                .spawn(async move { last_message(&location) });
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(text) = task.await {
+                    this.update_in(cx, |this, window, cx| this.fill_message(text, window, cx)).ok();
+                }
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn fill_message(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph() else {
+            return;
+        };
+        let Some(state) = graph.working.message.clone() else {
+            return;
+        };
+        let still_empty = state.read(cx).value().trim().is_empty();
+        if graph.working.amending && still_empty {
+            state.update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+    }
+
+    pub fn ask_discard(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let file = graph.working.selected_unstaged().cloned();
+        graph.working.discard.ask(file.as_ref());
+        cx.notify();
+    }
+
+    pub fn cancel_discard(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut() {
+            graph.working.discard.cancel();
+            cx.notify();
+        }
+    }
+
+    pub fn confirm_discard(&mut self, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        let working = &mut graph.working;
+        if working.busy() {
+            return;
+        }
+        let file = working
+            .discard
+            .path()
+            .and_then(|path| working.list(Side::Unstaged).iter().find(|file| file.path == path))
+            .cloned();
+        working.discard.cancel();
+        let Some(file) = file else {
+            return;
+        };
+        self.run_index_action(move |location| discard(location, &file), cx);
     }
 
     pub fn refresh_working(&mut self, cx: &mut Context<Self>) {
@@ -241,14 +405,17 @@ impl RepoView {
         working.status_task = None;
         match result {
             Ok(status) => {
-                working.groups = Some(status.groups());
+                let groups = status.groups();
+                working.discard.keep_if_discardable(&groups.unstaged);
+                working.groups = Some(groups);
+                working.amending &= keeps_amending(working.branch.as_ref(), &status.branch);
                 working.branch = Some(status.branch);
                 working.error = None;
             }
             Err(error) => working.error = Some(error.to_string()),
         }
         if working.selected.is_some() && working.selected_file().is_none() {
-            working.selected = None;
+            working.select(None);
             working.patch = None;
             working.patch_task = None;
         }
@@ -272,7 +439,7 @@ impl RepoView {
         let Some(graph) = self.graph_mut() else {
             return;
         };
-        graph.working.selected = Some((side, path));
+        graph.working.select(Some((side, path)));
         graph.working.patch = None;
         self.load_working_patch(cx);
     }
@@ -355,7 +522,7 @@ impl RepoView {
         };
         let paths: Vec<String> = file.patch_paths().into_iter().map(str::to_owned).collect();
         let next = working.next_after_selected();
-        working.selected = next.map(|path| (side, path));
+        working.select(next.map(|path| (side, path)));
         working.patch = None;
         working.patch_task = None;
         self.run_index_action(
@@ -441,7 +608,34 @@ impl RepoView {
     }
 }
 
-fn group_header(title: String, action: Option<Button>) -> impl IntoElement {
+fn discard_prompt(path: &str, busy: bool, cx: &mut Context<RepoView>) -> impl IntoElement {
+    let (name, _) = name_and_folder(path, None);
+    div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap_1()
+        .child(Label::new(format!("Discard changes to {name}?")))
+        .child(
+            div()
+                .flex()
+                .gap_2()
+                .child(
+                    Button::new("confirm-discard")
+                        .danger()
+                        .label("Discard")
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.confirm_discard(cx))),
+                )
+                .child(
+                    Button::new("cancel-discard")
+                        .label("Cancel")
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_discard(cx))),
+                ),
+        )
+}
+
+fn group_header(title: String, action: Option<AnyElement>) -> impl IntoElement {
     div()
         .flex()
         .flex_none()
@@ -516,12 +710,35 @@ pub fn changes_view(working: &Working, cx: &mut Context<RepoView>) -> AnyElement
                 .child(error)
         }))
         .child(
-            Button::new("commit")
-                .primary()
-                .label("Commit")
-                .disabled(!working.can_commit(&text))
-                .on_click(cx.listener(|this, _, window, cx| this.commit_staged(window, cx))),
+            div()
+                .flex()
+                .gap_2()
+                .child(
+                    Button::new("amend")
+                        .label("Amend")
+                        .selected(working.amending)
+                        .disabled(!working.can_toggle_amend())
+                        .on_click(cx.listener(|this, _, window, cx| this.toggle_amend(window, cx))),
+                )
+                .child(
+                    Button::new("commit")
+                        .primary()
+                        .label(if working.amending { "Amend commit" } else { "Commit" })
+                        .disabled(!working.can_commit(&text))
+                        .on_click(cx.listener(|this, _, window, cx| this.commit_staged(window, cx))),
+                ),
         );
+    let discard_button = Button::new("discard")
+        .label("Discard")
+        .disabled(!working.can_discard_selected())
+        .on_click(cx.listener(|this, _, _, cx| this.ask_discard(cx)));
+    let unstaged_actions = div()
+        .flex()
+        .gap_1()
+        .child(discard_button)
+        .child(stage_all_button)
+        .into_any_element();
+    let busy = working.busy();
     let lists = div()
         .flex()
         .flex_col()
@@ -539,7 +756,7 @@ pub fn changes_view(working: &Working, cx: &mut Context<RepoView>) -> AnyElement
         )
         .child(group_header(
             format!("Unstaged ({})", groups.unstaged.len()),
-            Some(stage_all_button),
+            Some(unstaged_actions),
         ))
         .child(
             div()
@@ -547,6 +764,7 @@ pub fn changes_view(working: &Working, cx: &mut Context<RepoView>) -> AnyElement
                 .min_h_0()
                 .child(group_list(Side::Unstaged, groups.unstaged.len(), working.nav(Side::Unstaged), cx)),
         )
+        .children(working.discard.path().map(|path| discard_prompt(path, busy, cx)))
         .child(commit_box);
     div()
         .flex()
@@ -565,4 +783,98 @@ pub fn changes_view(working: &Working, cx: &mut Context<RepoView>) -> AnyElement
                 .child(div().flex_1().min_w_0().h_full().min_h_0().child(patch)),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gitcore::diff::WorktreeDiff;
+
+    fn file(path: &str, state: FileState, diff: WorktreeDiff) -> WorkingFile {
+        WorkingFile { path: path.to_owned(), renamed_from: None, state, diff }
+    }
+
+    fn modified() -> WorkingFile {
+        file("a.txt", FileState::Changed(ChangeKind::Modified), WorktreeDiff::Unstaged)
+    }
+
+    fn ready(staged: bool, amending: bool, has_commit: bool, message: &str, busy: bool) -> bool {
+        commit_ready(CommitState { staged, amending, has_commit, busy }, message)
+    }
+
+    fn branch_at(oid: Option<&str>) -> Branch {
+        Branch {
+            head: Some("main".to_owned()),
+            oid: oid.map(|text| gitcore::log::Oid::parse(text).unwrap()),
+            ..Branch::default()
+        }
+    }
+
+    const FIRST: &str = "1111111111111111111111111111111111111111";
+    const SECOND: &str = "2222222222222222222222222222222222222222";
+
+    #[test]
+    fn an_amend_ends_when_the_head_commit_changes() {
+        let before = Some(branch_at(Some(FIRST)));
+
+        assert!(keeps_amending(before.as_ref(), &branch_at(Some(FIRST))));
+        assert!(!keeps_amending(before.as_ref(), &branch_at(Some(SECOND))));
+        assert!(!keeps_amending(before.as_ref(), &branch_at(None)));
+        assert!(!keeps_amending(None, &branch_at(Some(FIRST))));
+    }
+
+    #[test]
+    fn a_commit_needs_staged_files_and_a_message() {
+        assert!(ready(true, false, true, "msg", false));
+        assert!(!ready(false, false, true, "msg", false));
+        assert!(!ready(true, false, true, "  ", false));
+        assert!(!ready(true, false, true, "msg", true));
+    }
+
+    #[test]
+    fn an_amend_needs_a_commit_and_a_message_but_no_staged_file() {
+        assert!(ready(false, true, true, "msg", false));
+        assert!(!ready(false, true, false, "msg", false));
+        assert!(!ready(true, true, false, "msg", false));
+        assert!(!ready(false, true, true, "", false));
+        assert!(!ready(false, true, true, "msg", true));
+    }
+
+    #[test]
+    fn a_discard_is_asked_only_for_a_file_that_can_be_discarded() {
+        let mut prompt = DiscardPrompt::default();
+        prompt.ask(None);
+        assert_eq!(prompt.path(), None);
+
+        let staged = file("a.txt", FileState::Changed(ChangeKind::Modified), WorktreeDiff::Staged);
+        prompt.ask(Some(&staged));
+        assert_eq!(prompt.path(), None);
+
+        prompt.ask(Some(&modified()));
+        assert_eq!(prompt.path(), Some("a.txt"));
+
+        prompt.cancel();
+        assert_eq!(prompt.path(), None);
+    }
+
+    #[test]
+    fn a_discard_question_ends_when_its_file_is_gone_or_cannot_be_discarded_any_more() {
+        let mut prompt = DiscardPrompt::default();
+        prompt.ask(Some(&modified()));
+
+        prompt.keep_if_discardable(&[modified()]);
+        assert_eq!(prompt.path(), Some("a.txt"));
+
+        let conflicted = file(
+            "a.txt",
+            FileState::Conflicted(gitcore::status::ConflictKind::BothModified),
+            WorktreeDiff::Unstaged,
+        );
+        prompt.keep_if_discardable(&[conflicted]);
+        assert_eq!(prompt.path(), None);
+
+        prompt.ask(Some(&modified()));
+        prompt.keep_if_discardable(&[]);
+        assert_eq!(prompt.path(), None);
+    }
 }
