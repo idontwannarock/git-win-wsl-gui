@@ -30,9 +30,10 @@ Open work found while building `v1-core` (archived in `openspec/changes/archive/
 - [ ] 8.26 The result line of a remote command ("Pushed", an error) sits above the branch list and moves the list down when it appears. Reserve the space, or show the line inside the toolbar.
 - [ ] 8.27 The result line of a remote command stays until the next remote command. Clear it when the user starts another action (stage, commit, checkout).
 - [x] 8.28 Done in force-delete-branch: after `git branch -d` fails, the confirmation asks "Force delete <name>?" and runs `git branch -D`.
-- [ ] 8.29 Create a branch from a chosen commit or branch. Today a new branch always starts at the current commit.
+- [x] 8.29 Done in create-branch-from: right-click a commit row or a branch row and choose `Create branch here`; the next `Create` starts there.
 - [ ] 8.30 Delete a remote branch (`git push origin --delete <name>`), and rename a branch. The remote delete gets its own box "Also delete the remote branch" in the delete confirmation. Git has no force mode for it.
 - [ ] 8.31 Discard all unstaged changes, and discard a hunk or a line. Today `Discard` works on one file.
 - [ ] 8.32 Undo a discard. Today a discard cannot be undone, and only the confirmation step guards it.
 - [ ] 8.33 Warn before an amend of a commit that is already pushed. Today the next push is refused and the app never forces a push.
 - [ ] 8.34 The confirmation of a discard (and of a branch delete) moves the lists when it appears. Reserve the space or show it in a fixed place. Same cause as 8.26.
+- [ ] 8.35 Move other buttons into right-click menus (Checkout and Delete in the branch panel, Stage and Unstage and Discard in the file lists), so a panel has fewer buttons. The user asked for this style while we designed 8.29.

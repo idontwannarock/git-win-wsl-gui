@@ -1,7 +1,7 @@
 use crate::graph::GraphState;
 use crate::repo_view::RepoView;
 use crate::keyboard::{Step, list_region, stepped};
-use gitcore::branch::{DeleteMode, checkout_local, checkout_remote, create, delete};
+use gitcore::branch::{DeleteMode, StartPoint, checkout_local, checkout_remote, create, delete};
 use gitcore::log::Oid;
 use gitcore::refs::{RefKind, RefLabel};
 use gpui::{
@@ -15,6 +15,7 @@ use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::label::Label;
+use gpui_component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -33,11 +34,18 @@ struct DeletePrompt {
     mode: DeleteMode,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Start {
+    point: StartPoint,
+    label: String,
+}
+
 pub struct BranchPanel {
     entries: Vec<Entry>,
     selected: Option<(RefKind, String)>,
     error: Option<String>,
     confirming_delete: Option<DeletePrompt>,
+    start: Option<Start>,
     name: Option<Entity<InputState>>,
     name_subscription: Option<Subscription>,
 }
@@ -49,6 +57,7 @@ impl BranchPanel {
             selected: None,
             error: None,
             confirming_delete: None,
+            start: None,
             name: None,
             name_subscription: None,
         }
@@ -86,6 +95,24 @@ impl BranchPanel {
                 DeleteMode::Force => DeleteMode::IfMerged,
             };
         }
+    }
+
+    fn set_start(&mut self, point: StartPoint, label: String) {
+        self.start = Some(Start { point, label });
+    }
+
+    fn clear_used_start(&mut self, used: Option<&Start>) {
+        if self.start.as_ref() == used {
+            self.start = None;
+        }
+    }
+
+    fn clear_start(&mut self) {
+        self.start = None;
+    }
+
+    fn start(&self) -> Option<&Start> {
+        self.start.as_ref()
     }
 
     fn cancel_delete(&mut self) {
@@ -241,24 +268,47 @@ impl RepoView {
             return;
         }
         let location = graph.location.clone();
+        let used = graph.branches.start().cloned();
+        let start = used.as_ref().map(|start| start.point.clone());
         graph.branches.error = None;
         let task = cx.background_executor().spawn(async move {
-            create(&location, &name).map_err(|error| error.to_string())
+            create(&location, &name, start.as_ref()).map_err(|error| error.to_string())
         });
         graph.working.action_task = Some(cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
-            this.update_in(cx, |this, window, cx| this.finish_create(result, window, cx))
+            this.update_in(cx, |this, window, cx| this.finish_create(used.as_ref(), result, window, cx))
                 .ok();
         }));
         cx.notify();
     }
 
-    fn finish_create(&mut self, result: Result<(), String>, window: &mut Window, cx: &mut Context<Self>) {
+    fn finish_create(&mut self, used: Option<&Start>, result: Result<(), String>, window: &mut Window, cx: &mut Context<Self>) {
         let created = result.is_ok();
         self.finish_branch_command(result, cx);
         let name = self.graph().and_then(|graph| graph.branches.name.clone());
         if let (true, Some(state)) = (created, name) {
             state.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        if let (true, Some(graph)) = (created, self.graph_mut()) {
+            graph.branches.clear_used_start(used);
+        }
+    }
+
+    pub fn start_branch_from(&mut self, point: StartPoint, label: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(graph) = self.graph_mut() else {
+            return;
+        };
+        graph.branches.set_start(point, label);
+        if let Some(state) = &graph.branches.name {
+            state.update(cx, |state, cx| state.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    pub fn clear_start(&mut self, cx: &mut Context<Self>) {
+        if let Some(graph) = self.graph_mut() {
+            graph.branches.clear_start();
+            cx.notify();
         }
     }
 
@@ -385,10 +435,36 @@ impl RepoView {
                                 this.checkout_selected(cx);
                             }
                         }))
+                        .context_menu(create_branch_here(
+                            cx.entity(),
+                            start_point(kind, &label.name),
+                            label.name.clone(),
+                        ))
                         .into_any_element()
                 }
             })
             .collect()
+    }
+}
+
+fn start_point(kind: RefKind, name: &str) -> StartPoint {
+    match kind {
+        RefKind::RemoteBranch => StartPoint::Remote(name.to_owned()),
+        RefKind::Branch | RefKind::Tag => StartPoint::Local(name.to_owned()),
+    }
+}
+
+pub fn create_branch_here(
+    view: Entity<RepoView>,
+    point: StartPoint,
+    label: String,
+) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+    move |menu, _, _| {
+        let (view, point, label) = (view.clone(), point.clone(), label.clone());
+        menu.item(PopupMenuItem::new("Create branch here").on_click(move |_, window, cx| {
+            let (point, label) = (point.clone(), label.clone());
+            view.update(cx, |this, cx| this.start_branch_from(point, label, window, cx));
+        }))
     }
 }
 
@@ -488,6 +564,27 @@ pub fn branches_view(graph: &GraphState, cx: &mut Context<RepoView>) -> AnyEleme
                 )
                 .into_any_element(),
         })
+        .children(panel.start().map(|start| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(format!("Start: {}", start.label)),
+                )
+                .child(
+                    Button::new("clear-start")
+                        .label("Clear")
+                        .on_click(cx.listener(|this, _, _, cx| this.clear_start(cx))),
+                )
+        }))
         .children(panel.name.as_ref().map(Input::new))
         .child(
             Button::new("create")
@@ -702,6 +799,85 @@ mod tests {
         panel.ask_delete();
 
         assert_eq!(panel.confirming_delete(), None);
+    }
+
+    fn local_start(name: &str) -> StartPoint {
+        StartPoint::Local(name.to_owned())
+    }
+
+    #[test]
+    fn a_start_point_is_kept_with_its_label_until_it_is_cleared() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        assert_eq!(panel.start(), None);
+
+        panel.set_start(local_start("topic"), "topic".to_owned());
+        assert_eq!(panel.start().map(|start| start.label.as_str()), Some("topic"));
+        assert_eq!(panel.start().map(|start| &start.point), Some(&local_start("topic")));
+
+        panel.clear_start();
+        assert_eq!(panel.start(), None);
+    }
+
+    #[test]
+    fn a_branch_row_starts_at_a_local_or_a_remote_branch_by_its_kind() {
+        assert_eq!(start_point(RefKind::Branch, "topic"), StartPoint::Local("topic".to_owned()));
+        assert_eq!(
+            start_point(RefKind::RemoteBranch, "origin/topic"),
+            StartPoint::Remote("origin/topic".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_new_start_point_replaces_the_old_one() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("one"), "one".to_owned());
+
+        panel.set_start(local_start("two"), "two".to_owned());
+
+        assert_eq!(panel.start().map(|start| start.label.as_str()), Some("two"));
+    }
+
+    #[test]
+    fn clearing_the_used_start_point_keeps_a_newer_one() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("one"), "one".to_owned());
+        let used = panel.start().cloned();
+        panel.set_start(local_start("two"), "two".to_owned());
+
+        panel.clear_used_start(used.as_ref());
+
+        assert_eq!(panel.start().map(|start| start.label.as_str()), Some("two"));
+    }
+
+    #[test]
+    fn clearing_the_used_start_point_clears_it() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("one"), "one".to_owned());
+        let used = panel.start().cloned();
+
+        panel.clear_used_start(used.as_ref());
+
+        assert_eq!(panel.start(), None);
+    }
+
+    #[test]
+    fn clearing_when_no_start_was_used_keeps_a_start_set_meanwhile() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("two"), "two".to_owned());
+
+        panel.clear_used_start(None);
+
+        assert_eq!(panel.start().map(|start| start.label.as_str()), Some("two"));
+    }
+
+    #[test]
+    fn new_refs_keep_the_start_point() {
+        let mut panel = BranchPanel::new(&HashMap::new());
+        panel.set_start(local_start("topic"), "topic".to_owned());
+
+        panel.show_refs(&HashMap::new());
+
+        assert_eq!(panel.start().map(|start| start.label.as_str()), Some("topic"));
     }
 
     #[test]
